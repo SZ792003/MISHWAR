@@ -1,0 +1,6 @@
+# Copy to key.properties and keep the real file out of Git.
+# Recommended alias: mishwar-customer-upload
+storePassword=REPLACE_WITH_SECURE_VALUE
+keyPassword=REPLACE_WITH_SECURE_VALUE
+keyAlias=mishwar-customer-upload
+storeFile=../release-keystores/mishwar-customer-upload.jks

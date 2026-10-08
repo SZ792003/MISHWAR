@@ -1,0 +1,46 @@
+{
+  "name": "react-example",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port=3000 --host=0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview",
+    "clean": "rm -rf dist server.js",
+    "lint": "tsc --noEmit",
+    "qa:backend": "npm --prefix backend run qa:backend",
+    "qa:critical": "npm --prefix backend run qa:critical",
+    "qa:flutter:customer": "cd apps/customer_app && flutter pub get && flutter analyze --no-fatal-infos --no-fatal-warnings && flutter test",
+    "qa:flutter:driver": "cd apps/driver_app && flutter pub get && flutter analyze --no-fatal-infos --no-fatal-warnings && flutter test",
+    "qa:flutter:shared": "cd apps/mishwar_shared && flutter pub get && flutter analyze --no-fatal-infos --no-fatal-warnings && flutter test",
+    "qa:flutter": "npm run qa:flutter:shared && npm run qa:flutter:customer && npm run qa:flutter:driver",
+    "qa:all": "npm run lint && npm run qa:critical && npm run qa:flutter",
+    "deploy:firebase:staging": "powershell -ExecutionPolicy Bypass -File scripts/firebase_deploy.ps1 -Environment staging -ProjectId $env:FIREBASE_STAGING_PROJECT_ID",
+    "deploy:firebase:production": "powershell -ExecutionPolicy Bypass -File scripts/firebase_deploy.ps1 -Environment production -ProjectId $env:FIREBASE_PRODUCTION_PROJECT_ID -ConfirmProduction DEPLOY_PRODUCTION"
+  },
+  "dependencies": {
+    "@google/genai": "^2.4.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^6.1.1",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "firebase": "^12.19.0",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "vite": "^8.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "autoprefixer": "^10.4.21",
+    "esbuild": "^0.28.2",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.21.0",
+    "typescript": "^7.0.2",
+    "@types/express": "^4.17.21"
+  }
+}

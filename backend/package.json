@@ -1,0 +1,46 @@
+{
+  "name": "mishwar-backend",
+  "version": "1.0.0",
+  "description": "MISHWAR Smart Ride-Hailing Platform Backend API",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "npm run typecheck && tsc -p tsconfig.build.json && tsx scripts/prepareProductionBuild.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "start": "tsx src/server.ts",
+    "start:prod": "node dist-build/backend/src/server.js",
+    "dev": "tsx watch src/server.ts",
+    "test:api-smoke": "tsx scripts/apiSmokeTest.ts",
+    "test:ride-auth": "tsx scripts/rideAuthSmokeTest.ts",
+    "test:deploy-smoke": "tsx scripts/deploymentSmokeTest.ts",
+    "test:stage11a": "tsx scripts/stage11ASmokeTest.ts",
+    "test:payments": "tsx scripts/paymentCoreSmokeTest.ts && tsx scripts/financialOperationsSmokeTest.ts",
+    "test:fcm": "tsx scripts/fcmNotificationSmokeTest.ts",
+    "test:geo": "tsx scripts/geoServiceSmokeTest.ts",
+    "test:safety": "tsx scripts/safetySmokeTest.ts",
+    "test:risk": "tsx scripts/riskSmokeTest.ts",
+    "validate:config": "tsx scripts/validateConfig.ts",
+    "scan:secrets": "tsx scripts/secretScan.ts",
+    "release:manifest": "tsx scripts/generateReleaseManifest.ts",
+    "qa:critical": "npm run typecheck && npm run lint && npm run validate:config && npm run scan:secrets && npm run test:api-smoke && npm run test:ride-auth && npm run test:stage11a && npm run test:payments && npm run test:fcm && npm run test:geo && npm run test:safety && npm run test:risk",
+    "qa:backend": "npm run qa:critical",
+    "migrate": "tsx src/migrations/runMigrations.ts",
+    "backup:plan": "tsx scripts/backupPlan.ts",
+    "set-admin": "tsx scripts/setAdminClaim.ts"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "firebase-admin": "^12.0.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.14.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.0.0",
+    "esbuild": "^0.28.2"
+  }
+}

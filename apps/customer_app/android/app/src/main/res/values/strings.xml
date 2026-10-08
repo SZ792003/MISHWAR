@@ -1,0 +1,5 @@
+<resources>
+    <string name="default_notification_channel_id">ride_updates</string>
+    <string name="ride_updates_channel_name">Ride Updates</string>
+    <string name="ride_updates_channel_description">Ride status and payment updates.</string>
+</resources>

@@ -1,0 +1,162 @@
+"use strict";
+/**
+ * MISHWAR (مشوار) - Shared Utilities & Engines
+ * Mathematical formulas, State Machine verification, and Yemeni phone helpers.
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ALLOWED_STATE_TRANSITIONS = void 0;
+exports.calculateDistanceKm = calculateDistanceKm;
+exports.estimateDurationMinutes = estimateDurationMinutes;
+exports.calculateFare = calculateFare;
+exports.isValidStateTransition = isValidStateTransition;
+exports.normalizeYemeniPhone = normalizeYemeniPhone;
+exports.validateYemeniPhone = validateYemeniPhone;
+exports.formatCurrency = formatCurrency;
+exports.generateId = generateId;
+/**
+ * Calculates Great-Circle Distance between two coordinates in Kilometers using the Haversine formula.
+ */
+function calculateDistanceKm(from, to) {
+    const R = 6371; // Earth's radius in km
+    const dLat = ((to.latitude - from.latitude) * Math.PI) / 180;
+    const dLon = ((to.longitude - from.longitude) * Math.PI) / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos((from.latitude * Math.PI) / 180) *
+            Math.cos((to.latitude * Math.PI) / 180) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = R * c;
+    return Math.round(distance * 100) / 100; // 2 decimal precision
+}
+/**
+ * Estimates duration in minutes based on traffic & urban speed in Yemeni cities (average 20-30 km/h)
+ */
+function estimateDurationMinutes(distanceKm, vehicleType) {
+    // Speed variations based on traffic in Yemeni cities
+    let avgSpeedKmH = 20;
+    if (vehicleType === 'MOTORCYCLE') {
+        avgSpeedKmH = 26; // Motorcycles navigate crowded alleys and traffic faster
+    }
+    else if (vehicleType === 'COMFORT') {
+        avgSpeedKmH = 22;
+    }
+    else if (vehicleType === 'FAMILY') {
+        avgSpeedKmH = 18;
+    }
+    const rawMinutes = (distanceKm / avgSpeedKmH) * 60;
+    return Math.max(3, Math.ceil(rawMinutes));
+}
+/**
+ * Pure Pricing Engine calculation
+ * Formula:
+ * grossFare = max(minimumFare, (baseFare + (distance * pricePerKm) + (duration * pricePerMinute)) * peakMultiplier)
+ * platformCommission = grossFare * platformCommissionRate
+ * driverNetEarnings = grossFare - platformCommission
+ */
+function calculateFare(distanceKm, durationMinutes, pricingRule, zoneMultiplier = 1.0) {
+    const effectiveMultiplier = (pricingRule.peakMultiplier || 1.0) * zoneMultiplier;
+    const distanceFare = Math.round(distanceKm * pricingRule.pricePerKm);
+    const timeFare = Math.round(durationMinutes * pricingRule.pricePerMinute);
+    const rawCalculated = Math.round((pricingRule.baseFare + distanceFare + timeFare) * effectiveMultiplier);
+    const grossFare = Math.max(pricingRule.minimumFare, rawCalculated);
+    // Commission calculation (e.g., 10%)
+    const platformCommission = Math.round(grossFare * (pricingRule.platformCommissionRate || 0.10));
+    const driverNetEarnings = grossFare - platformCommission;
+    return {
+        baseFare: pricingRule.baseFare,
+        distanceKm: Math.round(distanceKm * 100) / 100,
+        distanceFare,
+        durationMinutes,
+        timeFare,
+        surgeMultiplier: Math.round(effectiveMultiplier * 100) / 100,
+        grossFare,
+        platformCommission,
+        driverNetEarnings,
+        currency: pricingRule.currency || 'YER'
+    };
+}
+/**
+ * Ride State Machine
+ * Defines all allowable state transitions to prevent race conditions & illegal leaps
+ */
+exports.ALLOWED_STATE_TRANSITIONS = {
+    REQUESTED: ['SEARCHING_DRIVER', 'CANCELLED_BY_CUSTOMER', 'CANCELLED_BY_PASSENGER'],
+    SEARCHING_DRIVER: ['DRIVER_ASSIGNED', 'NO_DRIVER_FOUND', 'NO_DRIVER_AVAILABLE', 'CANCELLED_BY_CUSTOMER', 'CANCELLED_BY_PASSENGER'],
+    DRIVER_ASSIGNED: ['DRIVER_ARRIVING', 'DRIVER_ON_THE_WAY', 'CANCELLED_BY_CUSTOMER', 'CANCELLED_BY_PASSENGER', 'CANCELLED_BY_DRIVER'],
+    DRIVER_ARRIVING: ['DRIVER_ARRIVED', 'CANCELLED_BY_CUSTOMER', 'CANCELLED_BY_PASSENGER', 'CANCELLED_BY_DRIVER'],
+    DRIVER_ON_THE_WAY: ['DRIVER_ARRIVED', 'CANCELLED_BY_CUSTOMER', 'CANCELLED_BY_PASSENGER', 'CANCELLED_BY_DRIVER'],
+    DRIVER_ARRIVED: ['TRIP_STARTED', 'CANCELLED_BY_CUSTOMER', 'CANCELLED_BY_PASSENGER', 'CANCELLED_BY_DRIVER'],
+    TRIP_STARTED: ['TRIP_COMPLETED', 'CANCELLED_BY_CUSTOMER', 'CANCELLED_BY_PASSENGER', 'CANCELLED_BY_DRIVER'],
+    TRIP_COMPLETED: [], // Terminal
+    CANCELLED_BY_CUSTOMER: [], // Terminal
+    CANCELLED_BY_PASSENGER: [], // Terminal
+    CANCELLED_BY_DRIVER: [], // Terminal
+    NO_DRIVER_FOUND: [], // Terminal
+    NO_DRIVER_AVAILABLE: [] // Terminal
+};
+function isValidStateTransition(current, next) {
+    return exports.ALLOWED_STATE_TRANSITIONS[current]?.includes(next) ?? false;
+}
+/**
+ * Normalizes Yemeni mobile numbers to Firebase-friendly E.164 format.
+ * Accepts examples like 771234567, 0771234567, +967771234567, and 00967771234567.
+ */
+function normalizeYemeniPhone(phone) {
+    const input = phone.trim();
+    let cleaned = input.replace(/\D/g, '');
+    if (cleaned.startsWith('00967')) {
+        cleaned = cleaned.substring(5);
+    }
+    else if (cleaned.startsWith('967')) {
+        cleaned = cleaned.substring(3);
+    }
+    else if (cleaned.startsWith('0')) {
+        cleaned = cleaned.substring(1);
+    }
+    if (cleaned.length !== 9 || !cleaned.startsWith('7')) {
+        return {
+            isValid: false,
+            normalized: input,
+            nationalNumber: cleaned,
+            display: input,
+            operator: 'Unknown'
+        };
+    }
+    const prefix = cleaned.substring(0, 2);
+    let operator = 'Yemeni mobile';
+    if (prefix === '77' || prefix === '78')
+        operator = 'Yemen Mobile';
+    else if (prefix === '73')
+        operator = 'YOU (MTN)';
+    else if (prefix === '71')
+        operator = 'Sabafon';
+    else if (prefix === '70')
+        operator = 'Y Telecom';
+    return {
+        isValid: true,
+        normalized: `+967${cleaned}`,
+        nationalNumber: cleaned,
+        display: `+967 ${cleaned.substring(0, 3)} ${cleaned.substring(3, 6)} ${cleaned.substring(6)}`,
+        operator
+    };
+}
+/**
+ * Backward-compatible Yemeni phone validation helper.
+ */
+function validateYemeniPhone(phone) {
+    return normalizeYemeniPhone(phone);
+}
+/**
+ * Format Yemeni Rial currency display
+ */
+function formatCurrency(amount, locale = 'ar') {
+    const formatted = amount.toLocaleString('en-US');
+    return locale === 'ar' ? `${formatted} ر.ي` : `${formatted} YER`;
+}
+/**
+ * Generate unique IDs for local mock operations and idempotency checks
+ */
+function generateId(prefix = 'id') {
+    return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
+}

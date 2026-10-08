@@ -1,0 +1,4 @@
+// Stage 6A placeholder Xcode project.
+// Open this app on macOS and run `flutter create --platforms=ios --org com.mishwar .`
+// or `flutter pub get && pod install` to regenerate a full Xcode project with Flutter tooling.
+// Bundle ID: com.mishwar.driver

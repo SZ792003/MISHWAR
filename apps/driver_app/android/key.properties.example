@@ -1,0 +1,6 @@
+# Copy to key.properties and keep the real file out of Git.
+# Recommended alias: mishwar-driver-upload
+storePassword=REPLACE_WITH_SECURE_VALUE
+keyPassword=REPLACE_WITH_SECURE_VALUE
+keyAlias=mishwar-driver-upload
+storeFile=../release-keystores/mishwar-driver-upload.jks

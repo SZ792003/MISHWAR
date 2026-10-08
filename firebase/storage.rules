@@ -1,0 +1,105 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function hasRole(role) {
+      return isAuthenticated() && request.auth.token.role == role;
+    }
+
+    function isAdmin() {
+      return hasRole('ADMIN') || hasRole('SUPER_ADMIN');
+    }
+
+    function isKycReviewer() {
+      return isAdmin() || hasRole('KYC_REVIEWER');
+    }
+
+    function isSafetyReviewer() {
+      return isAdmin() || hasRole('OPS_MANAGER') || hasRole('DISPATCHER') || hasRole('SUPPORT');
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isImage() {
+      return request.resource != null &&
+        request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp'];
+    }
+
+    function isKycDocument() {
+      return request.resource != null &&
+        request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    }
+
+    function validProfileImage() {
+      return isImage() && request.resource.size <= 5 * 1024 * 1024;
+    }
+
+    function validKycUpload() {
+      return isKycDocument() && request.resource.size <= 10 * 1024 * 1024;
+    }
+
+    // Private user profile media. Public avatar URLs should be copied to a CDN/public bucket later if needed.
+    match /users/{userId}/profile/{fileName} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create, update: if isOwner(userId) && validProfileImage();
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+
+    match /avatars/{userId}/{fileName} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create, update: if isOwner(userId) && validProfileImage();
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+
+    // Driver/vehicle media can contain plate, ID, or ownership details, so keep it private.
+    match /vehicles/{driverId}/{fileName} {
+      allow read: if isOwner(driverId) || isKycReviewer();
+      allow create, update: if isOwner(driverId) && validProfileImage();
+      allow delete: if isOwner(driverId) || isKycReviewer();
+    }
+
+    match /drivers/{driverId}/{path=**} {
+      allow read: if isOwner(driverId) || isKycReviewer();
+      allow create, update: if isOwner(driverId) && validKycUpload();
+      allow delete: if isOwner(driverId) || isKycReviewer();
+    }
+
+    match /driver_documents/{driverId}/{fileName} {
+      allow read: if isOwner(driverId) || isKycReviewer();
+      allow create, update: if isOwner(driverId) && validKycUpload();
+      allow delete: if isOwner(driverId) || isKycReviewer();
+    }
+
+    match /driver-kyc/{driverId}/{path=**} {
+      allow read: if isOwner(driverId) || isKycReviewer();
+      allow create, update: if isOwner(driverId) && validKycUpload();
+      allow delete: if isOwner(driverId) || isKycReviewer();
+    }
+
+    match /ride-incidents/{rideId}/{userId}/{fileName} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isImage() && request.resource.size <= 10 * 1024 * 1024;
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    match /ride-incidents/{rideId}/{incidentId}/{userId}/{fileName} {
+      allow read: if isOwner(userId) || isSafetyReviewer();
+      allow create: if isOwner(userId) &&
+        request.resource != null &&
+        request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'] &&
+        request.resource.size <= 10 * 1024 * 1024;
+      allow update: if false;
+      allow delete: if isSafetyReviewer();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

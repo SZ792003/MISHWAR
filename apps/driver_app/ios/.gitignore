@@ -1,0 +1,10 @@
+Flutter/Flutter.framework
+Flutter/Flutter.podspec
+Flutter/Generated.xcconfig
+Flutter/ephemeral/
+Pods/
+.symlinks/
+ServiceDefinitions.json
+*.xcuserstate
+xcuserdata/
+Runner.xcworkspace/xcuserdata/
