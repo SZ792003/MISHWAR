@@ -21,6 +21,8 @@ export const backendConfig = {
   port: process.env.PORT || 4000,
   apiToken: process.env.API_TOKEN || '',
   metricsToken: process.env.METRICS_TOKEN || '',
+  // Express "trust proxy" value: hop count (e.g. "1"), "true", or a comma-separated list of proxy IPs/subnets.
+  trustProxy: process.env.TRUST_PROXY || '',
   allowedOrigins: (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://127.0.0.1:3000,http://localhost:5101,http://127.0.0.1:5101,http://localhost:5102,http://127.0.0.1:5102')
     .split(',')
     .map((origin) => origin.trim())

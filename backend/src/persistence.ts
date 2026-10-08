@@ -146,15 +146,41 @@ export class FirestoreRideRepository {
     return rides.find((ride) => activeRideStatuses(ride.status)) || null;
   }
 
-  async listFirstSearchingRide(): Promise<Ride | null> {
+  async listSearchingRidesForDriver(driverId: string): Promise<Ride[]> {
     const firebaseAdmin = await adminContext();
     const query = (firebaseAdmin.admin.firestore(firebaseAdmin.app).collection('rides') as unknown as {
       where: (field: string, op: string, value: unknown) => {
         orderBy: (field: string, direction: 'asc') => { limit: (count: number) => { get: () => Promise<{ docs: Array<{ data: () => Record<string, unknown> }> }> } };
       };
-    }).where('status', '==', 'SEARCHING_DRIVER').orderBy('createdAt', 'asc').limit(10);
+    }).where('status', '==', 'SEARCHING_DRIVER').orderBy('createdAt', 'asc').limit(20);
     const snap = await query.get();
-    return snap.docs.map((doc) => asRide(doc.data())).find((ride) => !ride.driverId) || null;
+    return snap.docs
+      .map((doc) => asRide(doc.data()))
+      .filter((ride) => !ride.driverId && !ride.declinedByDriverIds?.includes(driverId));
+  }
+
+  async declineRide(rideId: string, driverId: string, actor: AuditActor): Promise<Ride> {
+    const firebaseAdmin = await adminContext();
+    return runFirestoreTransaction(firebaseAdmin, async (tx, db) => {
+      const rideRef = db.doc(`rides/${rideId}`);
+      const rideSnap = await tx.get(rideRef);
+      if (!rideSnap.exists) throw new Error('RIDE_NOT_FOUND');
+      const ride = asRide(rideSnap.data());
+      if (ride.status !== 'SEARCHING_DRIVER' || ride.driverId) throw new Error('RIDE_NOT_AVAILABLE');
+
+      const declinedByDriverIds = Array.from(new Set([...(ride.declinedByDriverIds || []), driverId]));
+      const updated = { ...ride, declinedByDriverIds, updatedAt: nowIso(), serverUpdatedAt: firestoreServerTimestamp(firebaseAdmin) };
+      tx.update(rideRef, { declinedByDriverIds, updatedAt: updated.updatedAt, serverUpdatedAt: updated.serverUpdatedAt });
+      auditService.logInTransaction(tx, db, {
+        ...actor,
+        eventType: 'RIDE_DECLINED',
+        targetType: 'RIDE',
+        targetId: rideId,
+        rideId,
+        metadata: { status: ride.status, driverId, declinedCount: declinedByDriverIds.length }
+      }, firestoreServerTimestamp(firebaseAdmin));
+      return updated;
+    });
   }
 
   async transitionRide(

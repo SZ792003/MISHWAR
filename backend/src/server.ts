@@ -63,6 +63,11 @@ const API_TOKEN = backendConfig.apiToken;
 const allowedOrigins = backendConfig.allowedOrigins;
 let isShuttingDown = false;
 
+if (backendConfig.trustProxy) {
+  const value = backendConfig.trustProxy.trim();
+  app.set('trust proxy', value === 'true' ? true : /^\d+$/.test(value) ? Number(value) : value.split(',').map((entry) => entry.trim()));
+}
+
 app.use(requestContextMiddleware);
 app.use(metricsMiddleware);
 app.use((_req: Request, res: Response, next: NextFunction) => {
@@ -1091,17 +1096,27 @@ function sendTrustedRoleError(res: Response, error: unknown) {
 // Rate Limiter Middleware (Anti-Spam)
 function rateLimit(limitCount: number = 30, windowMs: number = 60000) {
   const requestLogs = new Map<string, number[]>();
+  let lastSweep = Date.now();
   return (req: Request, res: Response, next: NextFunction) => {
-    const ip = req.ip || 'global_client';
+    // Limit per authenticated user so riders/drivers sharing a NAT or proxy IP don't throttle each other;
+    // fall back to the client IP for unauthenticated routes.
+    const uid = (req as AuthenticatedRequest).user?.uid;
+    const key = uid ? `user:${uid}` : `ip:${req.ip || 'global_client'}`;
     const now = Date.now();
-    const timestamps = (requestLogs.get(ip) || []).filter((t) => now - t < windowMs);
+    if (now - lastSweep > windowMs) {
+      for (const [entryKey, entry] of requestLogs) {
+        if (!entry.length || now - entry[entry.length - 1] >= windowMs) requestLogs.delete(entryKey);
+      }
+      lastSweep = now;
+    }
+    const timestamps = (requestLogs.get(key) || []).filter((t) => now - t < windowMs);
 
     if (timestamps.length >= limitCount) {
       return sendError(res, 429, 'تجاوزت الحد المسموح من الطلبات. يرجى الانتظار.', 'RATE_LIMIT_EXCEEDED');
     }
 
     timestamps.push(now);
-    requestLogs.set(ip, timestamps);
+    requestLogs.set(key, timestamps);
     next();
   };
 }
@@ -1402,6 +1417,14 @@ app.post('/api/rides', requireApiAuth('CUSTOMER'), rateLimit(20), async (req: Au
     const durationMins = Math.max(1, Math.ceil(route.durationSeconds / 60));
     const fare = calculateFare(distanceKm, durationMins, pricingRule, 1);
 
+    if (paymentMethod === 'WALLET') {
+      // Fail at booking time rather than after the trip, when the wallet debit would be rejected.
+      const balance = await paymentService.getWalletBalance(req.user!.uid, usePersistentStore(req));
+      if (balance < fare.grossFare) {
+        return sendError(res, 402, 'Wallet balance is not enough for this ride', 'INSUFFICIENT_WALLET_BALANCE');
+      }
+    }
+
     const now = new Date().toISOString();
     const rideId = `ride_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const ride: Ride = {
@@ -1556,6 +1579,40 @@ app.post('/api/rides/:id/location', requireApiAuth('DRIVER'), rateLimit(60), asy
   return sendSuccess(res, updated, 'Driver location updated');
 });
 
+const closedRideStatuses: RideStatus[] = [
+  'TRIP_COMPLETED',
+  'CANCELLED_BY_CUSTOMER',
+  'CANCELLED_BY_PASSENGER',
+  'CANCELLED_BY_DRIVER',
+  'NO_DRIVER_FOUND',
+  'NO_DRIVER_AVAILABLE'
+];
+
+// Short-lived exclusive offers so concurrent drivers polling /api/dispatch/incoming are shown
+// different searching rides instead of all racing for the oldest one. Process-local and advisory:
+// accept stays authoritative (ride lock in memory, transaction in Firestore).
+const RIDE_OFFER_TTL_MS = 15_000;
+const rideOffers = new Map<string, { driverId: string; expiresAt: number }>(); // rideId -> current offer
+
+function pickSearchingRideForDriver(candidates: Ride[], driverId: string): Ride | null {
+  const now = Date.now();
+  for (const [rideId, offer] of rideOffers) {
+    if (offer.expiresAt <= now) rideOffers.delete(rideId);
+  }
+  const ownOffer = candidates.find((ride) => rideOffers.get(ride.id)?.driverId === driverId);
+  if (ownOffer) return ownOffer;
+  const next = candidates.find((ride) => !rideOffers.has(ride.id));
+  if (!next) return null;
+  rideOffers.set(next.id, { driverId, expiresAt: now + RIDE_OFFER_TTL_MS });
+  return next;
+}
+
+function findActiveRideForDriver(driverId: string, excludeRideId?: string): Ride | undefined {
+  return Array.from(ridesStore.values())
+    .filter((ride) => ride.driverId === driverId && ride.id !== excludeRideId && !closedRideStatuses.includes(ride.status))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+}
+
 function updateRideTransition(
   rideId: string,
   nextStatus: RideStatus,
@@ -1586,6 +1643,8 @@ function updateRideTransition(
 
   const updated = { ...ride, ...patch, status: nextStatus };
   ridesStore.set(rideId, updated);
+  rideOffers.delete(rideId);
+  if (closedRideStatuses.includes(nextStatus)) activeRideLocks.delete(rideId);
   return { success: true, ride: updated };
 }
 
@@ -1598,6 +1657,7 @@ app.post('/api/rides/:id/accept', requireApiAuth('DRIVER'), rateLimit(30), async
         typeof req.body.driverName === 'string' ? req.body.driverName : 'MISHWAR Driver',
         auditActorFromRequest(req)
       );
+      rideOffers.delete(ride.id);
       metrics.increment('rides_accepted_total');
       await notifyRideParticipants(ride, 'تم قبول المشوار', 'الكابتن في الطريق إليك.', { event: 'ride_accepted' });
       return sendSuccess(res, ride, 'Ride accepted');
@@ -1616,13 +1676,20 @@ app.post('/api/rides/:id/accept', requireApiAuth('DRIVER'), rateLimit(30), async
     metrics.increment('ride_assignment_conflicts_total');
     return sendError(res, 409, 'Ride already assigned to another driver', 'RIDE_ALREADY_ASSIGNED');
   }
+  if (findActiveRideForDriver(req.user!.uid, ride.id)) {
+    metrics.increment('ride_assignment_conflicts_total');
+    return sendError(res, 409, 'Driver already has an active ride', 'DRIVER_ALREADY_BUSY');
+  }
   activeRideLocks.set(ride.id, req.user!.uid);
   const result = updateRideTransition(ride.id, 'DRIVER_ARRIVING', {
     driverId: req.user!.uid,
     driverName: typeof req.body.driverName === 'string' ? req.body.driverName : 'MISHWAR Driver',
     assignedAt: new Date().toISOString()
   });
-  if (!result.success) return sendError(res, 409, result.error || 'Ride accept failed', result.error || 'RIDE_ACCEPT_FAILED');
+  if (!result.success) {
+    if (!ride.driverId) activeRideLocks.delete(ride.id);
+    return sendError(res, 409, result.error || 'Ride accept failed', result.error || 'RIDE_ACCEPT_FAILED');
+  }
   metrics.increment('rides_accepted_total');
   await notifyRideParticipants(result.ride!, 'تم قبول المشوار', 'الكابتن في الطريق إليك.', { event: 'ride_accepted' });
   return sendSuccess(res, result.ride, 'Ride accepted');
@@ -1632,7 +1699,10 @@ app.get('/api/dispatch/incoming', requireApiAuth('DRIVER'), rateLimit(120), asyn
   if (usePersistentStore(req)) {
     try {
       const activeRide = await firestoreRideRepository.listActiveRideForUser(req.user!.uid, 'DRIVER');
-      const incomingRide = activeRide || await firestoreRideRepository.listFirstSearchingRide();
+      const incomingRide = activeRide || pickSearchingRideForDriver(
+        await firestoreRideRepository.listSearchingRidesForDriver(req.user!.uid),
+        req.user!.uid
+      );
       return sendSuccess(res, incomingRide, 'Incoming ride fetched');
     } catch (error) {
       return sendPersistenceError(res, error);
@@ -1640,19 +1710,13 @@ app.get('/api/dispatch/incoming', requireApiAuth('DRIVER'), rateLimit(120), asyn
   }
 
   const driverId = req.user!.uid;
-  const activeRide = Array.from(ridesStore.values())
-    .filter((ride) => ride.driverId === driverId && ![
-      'TRIP_COMPLETED',
-      'CANCELLED_BY_CUSTOMER',
-      'CANCELLED_BY_PASSENGER',
-      'CANCELLED_BY_DRIVER',
-      'NO_DRIVER_FOUND',
-      'NO_DRIVER_AVAILABLE'
-    ].includes(ride.status))
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
-  const incomingRide = activeRide || Array.from(ridesStore.values())
-    .filter((ride) => ride.status === 'SEARCHING_DRIVER' && !ride.driverId)
-    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0] || null;
+  const activeRide = findActiveRideForDriver(driverId);
+  const incomingRide = activeRide || pickSearchingRideForDriver(
+    Array.from(ridesStore.values())
+      .filter((ride) => ride.status === 'SEARCHING_DRIVER' && !ride.driverId && !ride.declinedByDriverIds?.includes(driverId))
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
+    driverId
+  );
 
   return sendSuccess(res, incomingRide, 'Incoming ride fetched');
 });
@@ -1660,17 +1724,10 @@ app.get('/api/dispatch/incoming', requireApiAuth('DRIVER'), rateLimit(120), asyn
 app.post('/api/rides/:id/decline', requireApiAuth('DRIVER'), rateLimit(30), async (req: AuthenticatedRequest, res: Response) => {
   if (usePersistentStore(req)) {
     try {
-      const ride = await firestoreRideRepository.getRide(req.params.id);
-      if (!ride) return sendError(res, 404, 'Ride not found', 'RIDE_NOT_FOUND');
-      if (ride.status !== 'SEARCHING_DRIVER') {
-        return sendError(res, 409, 'Ride is no longer available to decline', 'RIDE_NOT_AVAILABLE');
-      }
-      const updated = await firestoreRideRepository.transitionRide(ride.id, 'NO_DRIVER_FOUND', {}, {
-        actor: auditActorFromRequest(req),
-        eventType: 'RIDE_DECLINED'
-      });
-      metrics.increment('rides_cancelled_total');
-      await notifyRideParticipants(updated, 'تم رفض الطلب', 'لم يعد الطلب متاحاً لهذا الكابتن.', { event: 'ride_declined' });
+      // A decline only removes the ride from this driver's queue; it stays SEARCHING_DRIVER for others.
+      const updated = await firestoreRideRepository.declineRide(req.params.id, req.user!.uid, auditActorFromRequest(req));
+      rideOffers.delete(updated.id);
+      metrics.increment('rides_declined_total');
       return sendSuccess(res, updated, 'Ride declined');
     } catch (error) {
       return sendPersistenceError(res, error);
@@ -1679,14 +1736,17 @@ app.post('/api/rides/:id/decline', requireApiAuth('DRIVER'), rateLimit(30), asyn
 
   const ride = ridesStore.get(req.params.id);
   if (!ride) return sendError(res, 404, 'Ride not found', 'RIDE_NOT_FOUND');
-  if (ride.status !== 'SEARCHING_DRIVER') {
+  if (ride.status !== 'SEARCHING_DRIVER' || ride.driverId) {
     return sendError(res, 409, 'Ride is no longer available to decline', 'RIDE_NOT_AVAILABLE');
   }
-  const result = updateRideTransition(ride.id, 'NO_DRIVER_FOUND');
-  if (!result.success) return sendError(res, 409, result.error || 'Ride decline failed', result.error || 'RIDE_DECLINE_FAILED');
-  metrics.increment('rides_cancelled_total');
-  await notifyRideParticipants(result.ride!, 'تم رفض الطلب', 'لم يعد الطلب متاحاً لهذا الكابتن.', { event: 'ride_declined' });
-  return sendSuccess(res, result.ride, 'Ride declined');
+  const updated: Ride = {
+    ...ride,
+    declinedByDriverIds: Array.from(new Set([...(ride.declinedByDriverIds || []), req.user!.uid]))
+  };
+  ridesStore.set(ride.id, updated);
+  rideOffers.delete(ride.id);
+  metrics.increment('rides_declined_total');
+  return sendSuccess(res, updated, 'Ride declined');
 });
 
 app.post('/api/rides/:id/cancel', requireApiAuth(), rateLimit(30), async (req: AuthenticatedRequest, res: Response) => {
@@ -1939,6 +1999,10 @@ app.post('/api/dispatch/accept', requireApiAuth('DRIVER'), rateLimit(30), async 
   if (activeRideLocks.has(rideId) && activeRideLocks.get(rideId) !== driverId) {
     metrics.increment('ride_assignment_conflicts_total');
     return sendError(res, 409, 'عذراً، تم إسناد هذا المشوار لكابتن آخر بالفعل.', 'RIDE_ALREADY_ASSIGNED');
+  }
+  if (findActiveRideForDriver(driverId, rideId)) {
+    metrics.increment('ride_assignment_conflicts_total');
+    return sendError(res, 409, 'Driver already has an active ride', 'DRIVER_ALREADY_BUSY');
   }
 
   // Lock the ride to this driver

@@ -258,6 +258,14 @@ const completePaymentInMemory = (payment: Payment, ride: Ride, userId: string, i
 };
 
 export class PaymentService {
+  async getWalletBalance(userId: string, usePersistentStore: boolean): Promise<number> {
+    if (!usePersistentStore) return memoryWallets.get(userId) ?? 0;
+    const firebaseAdmin = await getFirebaseAdmin();
+    if (!firebaseAdmin) throw new Error('DATABASE_UNAVAILABLE');
+    const snap = await firebaseAdmin.admin.firestore(firebaseAdmin.app).doc(`wallets/${userId}`).get();
+    return Number(snap.data()?.balance ?? 0);
+  }
+
   async createRidePayment(params: {
     user: AuthenticatedPaymentUser;
     rideId: string;
