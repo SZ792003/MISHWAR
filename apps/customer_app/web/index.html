@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="ar">
 <head>
   <!--
     If you are serving your web app in a path other than the root, change the
@@ -18,21 +18,87 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="مشوار - اطلب رحلتك بسيارة أو دراجة نارية">
+  <meta name="theme-color" content="#07131F">
 
   <!-- iOS meta tags & icons -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="customer_app">
+  <meta name="apple-mobile-web-app-title" content="مشوار">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>customer_app</title>
+  <title>مشوار - تطبيق العميل</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- Starting layout shown until Flutter paints its first frame. Colors match MishwarBrand. -->
+  <style>
+    html, body { margin: 0; height: 100%; background: #07131F; }
+    #mishwar-splash {
+      position: fixed; inset: 0; z-index: 9999;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+      padding: 24px; box-sizing: border-box;
+      background: linear-gradient(160deg, #07131F 0%, #0F172A 55%, #0E2A2D 100%);
+      color: #fff; font-family: "Segoe UI", Tahoma, "Noto Sans Arabic", "Noto Sans", system-ui, sans-serif;
+      transition: opacity .35s ease;
+    }
+    #mishwar-splash.is-hidden { opacity: 0; pointer-events: none; }
+    .mishwar-splash__logo {
+      width: 84px; height: 84px; border-radius: 24px;
+      display: grid; place-items: center;
+      background: linear-gradient(135deg, #14B8A6, #F59E0B);
+      box-shadow: 0 12px 40px rgba(20, 184, 166, .35);
+      animation: mishwar-pulse 1.8s ease-in-out infinite;
+    }
+    .mishwar-splash__logo svg { width: 46px; height: 46px; fill: #fff; }
+    .mishwar-splash__title { margin: 0; font-size: 34px; font-weight: 800; letter-spacing: .5px; }
+    .mishwar-splash__subtitle { margin: -8px 0 0; font-size: 15px; color: rgba(255, 255, 255, .7); text-align: center; }
+    .mishwar-splash__bar {
+      position: relative; overflow: hidden;
+      width: min(220px, 60vw); height: 4px; margin-top: 10px; border-radius: 4px;
+      background: rgba(255, 255, 255, .1);
+    }
+    .mishwar-splash__bar::after {
+      content: ""; position: absolute; inset: 0; width: 40%; border-radius: 4px;
+      background: linear-gradient(90deg, #14B8A6, #F59E0B);
+      animation: mishwar-slide 1.2s ease-in-out infinite;
+    }
+    .mishwar-splash__status { margin: 0; min-height: 1.4em; font-size: 13px; color: rgba(255, 255, 255, .55); text-align: center; }
+    @keyframes mishwar-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+    @keyframes mishwar-slide { 0% { transform: translateX(160%); } 100% { transform: translateX(-260%); } }
+    @media (prefers-reduced-motion: reduce) {
+      .mishwar-splash__logo, .mishwar-splash__bar::after { animation: none; }
+      .mishwar-splash__bar::after { width: 100%; opacity: .6; }
+    }
+  </style>
 </head>
 <body>
+  <div id="mishwar-splash" dir="rtl" role="status" aria-live="polite">
+    <div class="mishwar-splash__logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5H15V3H9v2H6.5c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>
+    </div>
+    <h1 class="mishwar-splash__title">مشوار</h1>
+    <p class="mishwar-splash__subtitle">رحلات ذكية • أسرع • أكثر أماناً</p>
+    <div class="mishwar-splash__bar" aria-hidden="true"></div>
+    <p class="mishwar-splash__status" id="mishwar-splash-status">جارٍ التحميل…</p>
+  </div>
+  <script>
+    (function () {
+      var splash = document.getElementById('mishwar-splash');
+      var status = document.getElementById('mishwar-splash-status');
+      var slowTimer = setTimeout(function () {
+        status.textContent = 'التحميل يستغرق وقتاً أطول من المعتاد… تحقق من اتصالك بالإنترنت';
+      }, 15000);
+      window.addEventListener('flutter-first-frame', function () {
+        clearTimeout(slowTimer);
+        splash.classList.add('is-hidden');
+        setTimeout(function () { splash.remove(); }, 400);
+      }, { once: true });
+    })();
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
