@@ -203,6 +203,7 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
       _busy = true;
       _message = null;
     });
+    var declined = false;
     try {
       final updated = await ref.read(apiProvider).rideAction(
             ride['id'] as String,
@@ -211,6 +212,13 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
             reason: action == 'cancel' ? 'تم الإلغاء من تطبيق الكابتن' : null,
             actorRole: 'DRIVER',
           );
+      if (action == 'decline') {
+        // The ride stays open for other drivers; drop it locally and fetch this driver's next offer.
+        declined = true;
+        if (mounted) setState(() => _ride = null);
+        _syncRideListener(null);
+        return;
+      }
       if (mounted) setState(() => _ride = updated);
       _syncRideListener(updated);
       if (action == 'accept') {
@@ -229,6 +237,7 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+    if (declined) unawaited(_refreshRide());
   }
 
   Future<void> _confirmAndSendSos(Map<String, dynamic> ride) async {

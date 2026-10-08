@@ -641,7 +641,8 @@ export interface Ride {
   
   cancellationReason?: string;
   cancelledByRole?: 'CUSTOMER' | 'DRIVER' | 'ADMIN';
-  
+  declinedByDriverIds?: string[]; // drivers who passed on this ride while it was searching
+
   createdAt: string;
   assignedAt?: string;
   arrivedAt?: string;
