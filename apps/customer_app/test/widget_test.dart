@@ -51,4 +51,29 @@ void main() {
 
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets('customer navigation reaches trips and profile tabs',
+      (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiProvider.overrideWithValue(_FakeMishwarApi())],
+        child: const MaterialApp(
+          home: CustomerHomeScreen(routingEnabled: false),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await tester.tap(find.text('الرحلات'));
+    await tester.pumpAndSettle();
+    expect(find.text('سجل الرحلات والفواتير'), findsOneWidget);
+
+    await tester.tap(find.text('حسابي'));
+    await tester.pumpAndSettle();
+    expect(find.text('حساب العميل والإعدادات'), findsOneWidget);
+
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
 }

@@ -28,7 +28,8 @@ const demoCustomerId = 'flutter_demo_customer';
 const demoDriverId = 'flutter_demo_driver';
 typedef FirebaseIdTokenProvider = Future<String?> Function();
 
-bool get mishwarIsProductionMode => mishwarAppMode.toLowerCase() == 'production';
+bool get mishwarIsProductionMode =>
+    mishwarAppMode.toLowerCase() == 'production';
 
 bool get mishwarIsStrictMobileMode {
   final mode = mishwarAppMode.toLowerCase();
@@ -87,8 +88,11 @@ class MishwarApi {
       };
     }
 
-    final token = await _firebaseIdTokenProvider?.call() ?? mishwarFirebaseIdToken;
-    return token.isEmpty ? <String, String>{} : {'Authorization': 'Bearer $token'};
+    final token =
+        await _firebaseIdTokenProvider?.call() ?? mishwarFirebaseIdToken;
+    return token.isEmpty
+        ? <String, String>{}
+        : {'Authorization': 'Bearer $token'};
   }
 
   Map<String, dynamic> _data(Response<dynamic> response) {
@@ -131,7 +135,8 @@ class MishwarApi {
       'extraHeaders': extraHeaders ?? <String, String>{},
       'queuedAt': DateTime.now().toUtc().toIso8601String(),
     }));
-    await prefs.setStringList(_offlineQueueKey, queue.length > 50 ? queue.sublist(queue.length - 50) : queue);
+    await prefs.setStringList(_offlineQueueKey,
+        queue.length > 50 ? queue.sublist(queue.length - 50) : queue);
   }
 
   Future<Response<dynamic>> _postWithOfflineQueue({
@@ -191,6 +196,11 @@ class MishwarApi {
     return prefs.getStringList(_offlineQueueKey)?.length ?? 0;
   }
 
+  Future<void> clearLocalSessionData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_offlineQueueKey);
+  }
+
   Future<int> syncOfflineQueue() async {
     final prefs = await SharedPreferences.getInstance();
     final queue = [...prefs.getStringList(_offlineQueueKey) ?? <String>[]];
@@ -205,7 +215,8 @@ class MishwarApi {
         final path = item['path'] as String;
         final role = item['role'] as String;
         final data = Map<String, dynamic>.from(item['data'] as Map);
-        final extraHeaders = Map<String, String>.from(item['extraHeaders'] as Map? ?? const {});
+        final extraHeaders =
+            Map<String, String>.from(item['extraHeaders'] as Map? ?? const {});
         if (method != 'POST') continue;
         if (!_isOfflineReplayAllowed(path)) {
           synced += 1;
@@ -276,7 +287,10 @@ class MishwarApi {
       options: Options(headers: await _headers(role)),
     );
     final data = (response.data['data'] as List?) ?? const [];
-    return data.map((item) => PlaceModel.fromJson(Map<String, dynamic>.from(item as Map))).toList();
+    return data
+        .map((item) =>
+            PlaceModel.fromJson(Map<String, dynamic>.from(item as Map)))
+        .toList();
   }
 
   Future<PlaceModel?> reverseGeocode({
@@ -293,7 +307,9 @@ class MishwarApi {
       options: Options(headers: await _headers(role)),
     );
     final data = response.data['data'];
-    return data is Map ? PlaceModel.fromJson(Map<String, dynamic>.from(data)) : null;
+    return data is Map
+        ? PlaceModel.fromJson(Map<String, dynamic>.from(data))
+        : null;
   }
 
   Future<RouteModel> calculateRoute({
@@ -335,7 +351,8 @@ class MishwarApi {
         if (heading != null) 'heading': heading,
         if (speed != null) 'speed': speed,
         if (clientUpdatedAt != null) 'clientUpdatedAt': clientUpdatedAt,
-        if (skippedCount != null && skippedCount > 0) 'skippedCount': skippedCount,
+        if (skippedCount != null && skippedCount > 0)
+          'skippedCount': skippedCount,
       },
     );
     return _data(response);
@@ -352,6 +369,8 @@ class MishwarApi {
     required int passengerCount,
     required bool airConditioningRequired,
     required String paymentMethod,
+    String bookingMode = 'FAST',
+    int? customerProposedFare,
   }) async {
     final key = 'flutter-${DateTime.now().microsecondsSinceEpoch}';
     final response = await _postCritical(
@@ -374,8 +393,75 @@ class MishwarApi {
         'passengerCount': passengerCount,
         'airConditioningRequired': airConditioningRequired,
         'paymentMethod': paymentMethod,
+        'bookingMode': bookingMode,
+        if (customerProposedFare != null)
+          'customerProposedFare': customerProposedFare,
       },
       extraHeaders: {'x-idempotency-key': key},
+    );
+    return _data(response);
+  }
+
+  Future<List<Map<String, dynamic>>> rideBids(String rideId) async {
+    final response = await _dio.get(
+      '/api/rides/$rideId/bids',
+      options: Options(headers: await _headers('CUSTOMER')),
+    );
+    final data = (response.data['data'] as List?) ?? const [];
+    return data.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+  }
+
+  Future<Map<String, dynamic>> submitRideBid({
+    required String rideId,
+    required int amount,
+    int etaMinutes = 8,
+  }) async {
+    final key = 'bid-$rideId-${DateTime.now().microsecondsSinceEpoch}';
+    final response = await _postCritical(
+      path: '/api/rides/$rideId/bids',
+      role: 'DRIVER',
+      data: {
+        'amount': amount,
+        'etaMinutes': etaMinutes,
+        'driverName': 'كابتن مشوار',
+      },
+      extraHeaders: {'x-idempotency-key': key},
+    );
+    return _data(response);
+  }
+
+  Future<Map<String, dynamic>> selectRideBid({
+    required String rideId,
+    required String bidId,
+  }) async {
+    final response = await _postCritical(
+      path: '/api/rides/$rideId/bids/$bidId/select',
+      role: 'CUSTOMER',
+      data: const {},
+    );
+    return _data(response);
+  }
+
+  Future<Map<String, dynamic>> withdrawRideBid({
+    required String rideId,
+    required String bidId,
+  }) async {
+    final response = await _postCritical(
+      path: '/api/rides/$rideId/bids/$bidId/withdraw',
+      role: 'DRIVER',
+      data: const {},
+    );
+    return _data(response);
+  }
+
+  Future<Map<String, dynamic>> cancelBidding({
+    required String rideId,
+    String reason = 'cancelled_by_customer',
+  }) async {
+    final response = await _postCritical(
+      path: '/api/rides/$rideId/bidding/cancel',
+      role: 'CUSTOMER',
+      data: {'reason': reason},
     );
     return _data(response);
   }
@@ -391,7 +477,10 @@ class MishwarApi {
     if (driverName != null) data['driverName'] = driverName;
     if (reason != null) data['reason'] = reason;
     final role = actorRole ??
-        (action == 'accept' || action == 'arrived' || action == 'start' || action == 'complete'
+        (action == 'accept' ||
+                action == 'arrived' ||
+                action == 'start' ||
+                action == 'complete'
             ? 'DRIVER'
             : action == 'cancel'
                 ? 'CUSTOMER'

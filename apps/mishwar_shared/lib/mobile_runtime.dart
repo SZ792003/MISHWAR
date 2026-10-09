@@ -28,7 +28,8 @@ Future<String?> firebaseIdToken() async {
 }
 
 @pragma('vm:entry-point')
-Future<void> mishwarFirebaseMessagingBackgroundHandler(RemoteMessage message) async {
+Future<void> mishwarFirebaseMessagingBackgroundHandler(
+    RemoteMessage message) async {
   await ensureFirebaseReady();
   await recordNonFatal(
     'background_push_received',
@@ -36,7 +37,8 @@ Future<void> mishwarFirebaseMessagingBackgroundHandler(RemoteMessage message) as
   );
 }
 
-String _notificationAppName(String role) => role == 'DRIVER' ? 'driver' : 'customer';
+String _notificationAppName(String role) =>
+    role == 'DRIVER' ? 'driver' : 'customer';
 
 Future<void> setupFirebaseRuntime({
   required String role,
@@ -49,14 +51,17 @@ Future<void> setupFirebaseRuntime({
       FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
       return true;
     };
-    await FirebaseCrashlytics.instance.setCustomKey('app_role', _notificationAppName(role));
+    await FirebaseCrashlytics.instance
+        .setCustomKey('app_role', _notificationAppName(role));
     await FirebaseCrashlytics.instance.setCustomKey('app_mode', mishwarAppMode);
-    await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+    await FirebaseMessaging.instance
+        .setForegroundNotificationPresentationOptions(
       alert: true,
       badge: true,
       sound: true,
     );
-    FirebaseMessaging.onBackgroundMessage(mishwarFirebaseMessagingBackgroundHandler);
+    FirebaseMessaging.onBackgroundMessage(
+        mishwarFirebaseMessagingBackgroundHandler);
     FirebaseMessaging.onMessage.listen((message) {
       unawaited(logAnalyticsEvent(
         role: role,
@@ -81,7 +86,8 @@ Future<void> setupFirebaseRuntime({
     }
     await logAnalyticsEvent(role: role, name: 'app_open');
   } catch (error, stack) {
-    await recordNonFatal('firebase_runtime_setup_failed', error: error, stack: stack);
+    await recordNonFatal('firebase_runtime_setup_failed',
+        error: error, stack: stack);
   }
 }
 
@@ -129,10 +135,22 @@ Future<void> unregisterMessagingToken({
   }
 }
 
+Future<void> signOutAndClearSession({
+  required MishwarApi api,
+  required String role,
+}) async {
+  await unregisterMessagingToken(api: api, role: role);
+  await api.clearLocalSessionData();
+  if (!await ensureFirebaseReady()) return;
+  await FirebaseAuth.instance.signOut();
+}
+
 Map<String, Object> _safePushParameters(RemoteMessage message) {
   return {
-    if (message.data['event'] is String) 'event': message.data['event'] as String,
-    if (message.data['status'] is String) 'status': message.data['status'] as String,
+    if (message.data['event'] is String)
+      'event': message.data['event'] as String,
+    if (message.data['status'] is String)
+      'status': message.data['status'] as String,
     if (message.data['rideId'] is String) 'ride_id_present': true,
   };
 }
@@ -166,7 +184,8 @@ Future<void> logAnalyticsEvent({
     }
   }
   try {
-    await FirebaseAnalytics.instance.logEvent(name: name, parameters: safeParameters);
+    await FirebaseAnalytics.instance
+        .logEvent(name: name, parameters: safeParameters);
   } catch (error, stack) {
     await recordNonFatal('analytics_event_failed', error: error, stack: stack);
   }
@@ -222,13 +241,15 @@ class _AuthGateState extends State<AuthGate> {
       future: _firebaseReady,
       builder: (context, readySnapshot) {
         if (readySnapshot.connectionState != ConnectionState.done) {
-          return const _AuthScaffold(child: Center(child: CircularProgressIndicator()));
+          return const _AuthScaffold(
+              child: Center(child: CircularProgressIndicator()));
         }
         if (readySnapshot.data != true) {
           return const _AuthScaffold(
             child: _AuthMessage(
               title: 'Firebase غير مهيأ',
-              message: 'أضف إعدادات Firebase للتطبيق ثم أعد التشغيل لتفعيل تسجيل الدخول الحقيقي.',
+              message:
+                  'أضف إعدادات Firebase للتطبيق ثم أعد التشغيل لتفعيل تسجيل الدخول الحقيقي.',
             ),
           );
         }
@@ -237,7 +258,8 @@ class _AuthGateState extends State<AuthGate> {
           stream: FirebaseAuth.instance.authStateChanges(),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const _AuthScaffold(child: Center(child: CircularProgressIndicator()));
+              return const _AuthScaffold(
+                  child: Center(child: CircularProgressIndicator()));
             }
             if (snapshot.data == null) return PhoneOtpSignIn(role: widget.role);
             return widget.child;
@@ -283,7 +305,8 @@ class _PhoneOtpSignInState extends State<PhoneOtpSignIn> {
           await FirebaseAuth.instance.signInWithCredential(credential);
         },
         verificationFailed: (error) {
-          if (mounted) setState(() => _message = error.message ?? 'تعذر إرسال رمز التحقق');
+          if (mounted)
+            setState(() => _message = error.message ?? 'تعذر إرسال رمز التحقق');
         },
         codeSent: (verificationId, _) {
           if (mounted) {
@@ -422,14 +445,17 @@ class _OfflineSyncCardState extends State<OfflineSyncCard> {
     if (_pending == 0) return const SizedBox.shrink();
     return Card(
       child: ListTile(
-        leading: const Icon(Icons.cloud_sync_outlined, color: MishwarBrand.accent),
+        leading:
+            const Icon(Icons.cloud_sync_outlined, color: MishwarBrand.accent),
         title: const Text('عمليات بانتظار المزامنة'),
         subtitle: Text('$_pending عملية محفوظة بسبب انقطاع الاتصال'),
         trailing: IconButton(
           tooltip: 'مزامنة',
           onPressed: _syncing ? null : _sync,
           icon: _syncing
-              ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2))
               : const Icon(Icons.refresh),
         ),
       ),
@@ -477,7 +503,8 @@ class _AuthMessage extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline, color: MishwarBrand.accent, size: 34),
+            const Icon(Icons.error_outline,
+                color: MishwarBrand.accent, size: 34),
             const SizedBox(height: 12),
             Text(title, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),

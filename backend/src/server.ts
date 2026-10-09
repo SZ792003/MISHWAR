@@ -6,6 +6,7 @@ import {
   ApiResponse,
   PricingRule,
   Ride,
+  RideBid,
   RideStatus,
   VehicleType,
   SOSAlert,
@@ -87,6 +88,7 @@ const walletBalances = new Map<string, number>([
   ['cust_05', 9100]
 ]);
 const ridesStore = new Map<string, Ride>();
+const rideBidsStore = new Map<string, RideBid>();
 const safetyReportsStore = new Map<string, SafetyReport>();
 const userBlocksStore = new Map<string, UserBlockRecord>();
 const driverDocumentsStore = new Map<string, DriverDocument>();
@@ -461,7 +463,15 @@ function sendPersistenceError(res: Response, error: unknown) {
     PAYMENT_METHOD_DISABLED: 400,
     OFFER_REQUIRED: 409,
     OFFER_NOT_AVAILABLE: 409,
-    OFFER_EXPIRED: 409
+    OFFER_EXPIRED: 409,
+    BIDDING_NOT_OPEN: 409,
+    BIDDING_EXPIRED: 409,
+    BID_NOT_FOUND: 404,
+    BID_NOT_AVAILABLE: 409,
+    BID_ALREADY_SELECTED: 409,
+    BID_EXPIRED: 409,
+    BID_NOT_EDITABLE: 409,
+    BIDDING_SELECTION_REQUIRED: 409
   };
   const messageByCode: Record<string, string> = {
     DATABASE_UNAVAILABLE: 'Persistent database is not available',
@@ -478,6 +488,14 @@ function sendPersistenceError(res: Response, error: unknown) {
     OFFER_REQUIRED: 'This driver does not have an active ride offer',
     OFFER_NOT_AVAILABLE: 'This ride offer is no longer available',
     OFFER_EXPIRED: 'This ride offer expired; request the next available offer',
+    BIDDING_NOT_OPEN: 'Bidding is not open for this ride',
+    BIDDING_EXPIRED: 'Bidding window expired',
+    BID_NOT_FOUND: 'Bid not found',
+    BID_NOT_AVAILABLE: 'Bid is not available',
+    BID_ALREADY_SELECTED: 'A bid was already selected for this ride',
+    BID_EXPIRED: 'Bid expired',
+    BID_NOT_EDITABLE: 'Bid is not editable',
+    BIDDING_SELECTION_REQUIRED: 'Bidding rides must be assigned by customer bid selection',
     DATABASE_ERROR: 'Database operation failed'
   };
   return sendError(res, statusByCode[code] || 500, messageByCode[code] || messageByCode.DATABASE_ERROR, code || 'DATABASE_ERROR');
@@ -1414,6 +1432,177 @@ app.post('/api/pricing/calculate', requireApiAuth(), rateLimit(60), async (req: 
   }
 });
 
+const BIDDING_TTL_MS = 2 * 60 * 1000;
+
+const normalizeBookingMode = (value: unknown): 'FAST' | 'BIDDING' => {
+  const mode = String(value || 'FAST').trim().toUpperCase();
+  return mode === 'BIDDING' ? 'BIDDING' : 'FAST';
+};
+
+const biddingBounds = (serverEstimatedFare: number): { fareFloor: number; fareCeiling: number } => ({
+  fareFloor: Math.max(100, Math.round(serverEstimatedFare * 0.6)),
+  fareCeiling: Math.max(100, Math.round(serverEstimatedFare * 1.5))
+});
+
+const assertFareInBiddingBounds = (amount: number, ride: Ride, code = 'BID_AMOUNT_OUT_OF_RANGE'): number => {
+  const normalized = Math.round(Number(amount));
+  if (!Number.isFinite(normalized) || normalized <= 0) {
+    throw Object.assign(new Error('INVALID_BID_AMOUNT'), { code: 'INVALID_BID_AMOUNT' });
+  }
+  const floor = ride.fareFloor ?? biddingBounds(ride.serverEstimatedFare || ride.fare.grossFare).fareFloor;
+  const ceiling = ride.fareCeiling ?? biddingBounds(ride.serverEstimatedFare || ride.fare.grossFare).fareCeiling;
+  if (normalized < floor || normalized > ceiling) {
+    throw Object.assign(new Error(code), { code });
+  }
+  return normalized;
+};
+
+const fareWithFinalAmount = (ride: Ride, amount: number): Ride['fare'] => {
+  const base = ride.fare;
+  const platformCommission = Math.round(amount * 0.1);
+  return {
+    ...base,
+    grossFare: amount,
+    platformCommission,
+    driverNetEarnings: amount - platformCommission
+  };
+};
+
+const biddingExpired = (ride: Ride, now = new Date().toISOString()): boolean => {
+  return Boolean(ride.biddingExpiresAt && Date.parse(ride.biddingExpiresAt) <= Date.parse(now));
+};
+
+const activeBiddingRideForDriver = (driverId: string): Ride | null => {
+  return Array.from(ridesStore.values())
+    .filter((ride) =>
+      ride.bookingMode === 'BIDDING' &&
+      ride.biddingStatus === 'OPEN' &&
+      ride.status === 'SEARCHING_DRIVER' &&
+      !ride.driverId &&
+      !biddingExpired(ride) &&
+      !ride.declinedByDriverIds?.includes(driverId)
+    )
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0] || null;
+};
+
+const bidDocId = (rideId: string, driverId: string): string => `${rideId}_${driverId}`;
+
+async function getPersistentRideBids(rideId: string): Promise<RideBid[]> {
+  const firebaseAdmin = await getFirebaseAdmin();
+  if (!firebaseAdmin) throw new Error('DATABASE_UNAVAILABLE');
+  const collection = firebaseAdmin.admin.firestore(firebaseAdmin.app).collection('rideBids') as unknown as {
+    where: (field: string, op: string, value: unknown) => { get: () => Promise<{ docs: Array<{ data: () => Record<string, unknown> }> }> };
+  };
+  const snap = await collection.where('rideId', '==', rideId).get();
+  return snap.docs
+    .map((doc: { data: () => Record<string, unknown> }) => doc.data() as unknown as RideBid)
+    .sort((left: RideBid, right: RideBid) => left.createdAt.localeCompare(right.createdAt));
+}
+
+async function createPersistentRideBid(params: {
+  ride: Ride;
+  driverId: string;
+  driverName: string;
+  amount: number;
+  etaMinutes: number;
+  idempotencyKey: string;
+  requestId?: string;
+}): Promise<RideBid> {
+  const firebaseAdmin = await getFirebaseAdmin();
+  if (!firebaseAdmin) throw new Error('DATABASE_UNAVAILABLE');
+  const db = firebaseAdmin.admin.firestore(firebaseAdmin.app);
+  const runTransaction = (db as unknown as { runTransaction: <R>(cb: (tx: { get: (ref: unknown) => Promise<{ exists: boolean; data: () => Record<string, unknown> | undefined }>; set: (ref: unknown, data: Record<string, unknown>, options?: { merge?: boolean }) => void }) => Promise<R>) => Promise<R> }).runTransaction;
+  return runTransaction.bind(db)(async (tx) => {
+    const idemRef = db.doc(`idempotencyKeys/${Buffer.from(`ride-bid:${params.driverId}:${params.idempotencyKey}`).toString('base64url')}`);
+    const idemSnap = await tx.get(idemRef);
+    if (idemSnap.exists) return idemSnap.data()?.response as RideBid;
+
+    const rideRef = db.doc(`rides/${params.ride.id}`);
+    const bidRef = db.doc(`rideBids/${bidDocId(params.ride.id, params.driverId)}`);
+    const driverOpRef = db.doc(`driverOperational/${params.driverId}`);
+    const kycRef = db.doc(`driverKyc/${params.driverId}`);
+    const [rideSnap, bidSnap, driverOpSnap, kycSnap] = await Promise.all([tx.get(rideRef), tx.get(bidRef), tx.get(driverOpRef), tx.get(kycRef)]);
+    if (!rideSnap.exists) throw new Error('RIDE_NOT_FOUND');
+    const ride = rideSnap.data() as unknown as Ride;
+    if (ride.bookingMode !== 'BIDDING' || ride.biddingStatus !== 'OPEN' || ride.status !== 'SEARCHING_DRIVER' || ride.driverId) throw new Error('BIDDING_NOT_OPEN');
+    if (biddingExpired(ride)) throw new Error('BIDDING_EXPIRED');
+    const amount = assertFareInBiddingBounds(params.amount, ride);
+    const driverOp = driverOpSnap.exists ? driverOpSnap.data() : null;
+    if (driverOp?.currentRideId && driverOp.currentRideId !== ride.id) throw new Error('DRIVER_ALREADY_BUSY');
+    const kyc = kycSnap.exists ? kycSnap.data() : null;
+    if (kyc?.kycStatus && kyc.kycStatus !== 'approved') throw new Error('DRIVER_NOT_ELIGIBLE');
+    if (bidSnap.exists && ['SELECTED', 'WITHDRAWN'].includes(String(bidSnap.data()?.status))) throw new Error('BID_NOT_EDITABLE');
+
+    const now = new Date().toISOString();
+    const bid: RideBid = {
+      id: bidDocId(ride.id, params.driverId),
+      rideId: ride.id,
+      driverId: params.driverId,
+      driverName: params.driverName,
+      driverRating: 5,
+      vehicleType: ride.vehicleType,
+      amount,
+      etaMinutes: Math.max(1, Math.min(120, Math.round(params.etaMinutes || 8))),
+      status: 'SUBMITTED',
+      createdAt: bidSnap.exists ? String(bidSnap.data()?.createdAt || now) : now,
+      updatedAt: now,
+      expiresAt: ride.biddingExpiresAt || new Date(Date.parse(now) + BIDDING_TTL_MS).toISOString(),
+      idempotencyKey: params.idempotencyKey,
+      requestId: params.requestId
+    };
+    tx.set(bidRef, bid as unknown as Record<string, unknown>, { merge: true });
+    tx.set(idemRef, { key: params.idempotencyKey, userId: params.driverId, scope: 'ride-bid', response: bid, createdAt: now });
+    return bid;
+  });
+}
+
+async function selectPersistentRideBid(params: { rideId: string; bidId: string; customerId: string; requestId?: string }): Promise<Ride> {
+  const firebaseAdmin = await getFirebaseAdmin();
+  if (!firebaseAdmin) throw new Error('DATABASE_UNAVAILABLE');
+  const db = firebaseAdmin.admin.firestore(firebaseAdmin.app);
+  const runTransaction = (db as unknown as { runTransaction: <R>(cb: (tx: { get: (ref: unknown) => Promise<{ exists: boolean; data: () => Record<string, unknown> | undefined }>; set: (ref: unknown, data: Record<string, unknown>, options?: { merge?: boolean }) => void; update: (ref: unknown, data: Record<string, unknown>) => void }) => Promise<R>) => Promise<R> }).runTransaction;
+  return runTransaction.bind(db)(async (tx) => {
+    const rideRef = db.doc(`rides/${params.rideId}`);
+    const bidRef = db.doc(`rideBids/${params.bidId}`);
+    const [rideSnap, bidSnap] = await Promise.all([tx.get(rideRef), tx.get(bidRef)]);
+    if (!rideSnap.exists) throw new Error('RIDE_NOT_FOUND');
+    if (!bidSnap.exists) throw new Error('BID_NOT_FOUND');
+    const ride = rideSnap.data() as unknown as Ride;
+    const bid = bidSnap.data() as unknown as RideBid;
+    if (ride.customerId !== params.customerId && ride.passengerId !== params.customerId) throw new Error('RIDE_FORBIDDEN');
+    if (ride.bookingMode !== 'BIDDING' || ride.biddingStatus !== 'OPEN' || ride.selectedBidId) throw new Error('BID_ALREADY_SELECTED');
+    if (ride.status !== 'SEARCHING_DRIVER' || ride.driverId) throw new Error('RIDE_NOT_AVAILABLE');
+    if (bid.rideId !== ride.id || bid.status !== 'SUBMITTED') throw new Error('BID_NOT_AVAILABLE');
+    if (biddingExpired(ride) || Date.parse(bid.expiresAt) <= Date.now()) throw new Error('BID_EXPIRED');
+
+    const now = new Date().toISOString();
+    const updated: Ride = {
+      ...ride,
+      driverId: bid.driverId,
+      driverName: bid.driverName || 'MISHWAR Driver',
+      driverRating: bid.driverRating,
+      status: 'DRIVER_ARRIVING',
+      fare: fareWithFinalAmount(ride, bid.amount),
+      finalFare: bid.amount,
+      selectedBidId: bid.id,
+      biddingStatus: 'SELECTED',
+      assignedAt: now,
+      updatedAt: now
+    } as Ride;
+    tx.update(rideRef, updated as unknown as Record<string, unknown>);
+    tx.set(bidRef, { status: 'SELECTED', selectedAt: now, updatedAt: now }, { merge: true });
+    tx.set(db.doc(`driverOperational/${bid.driverId}`), {
+      driverId: bid.driverId,
+      currentRideId: ride.id,
+      currentRideStatus: updated.status,
+      isAcceptingRides: false,
+      driverStatus: 'IN_RIDE',
+      updatedAt: now
+    }, { merge: true });
+    return updated;
+  });
+}
+
 // Real Pilot Ride API: server-authoritative request creation.
 app.post('/api/rides', requireApiAuth('CUSTOMER'), rateLimit(20), async (req: AuthenticatedRequest, res: Response) => {
   if (!backendConfig.rideCreationEnabled) {
@@ -1435,13 +1624,14 @@ app.post('/api/rides', requireApiAuth('CUSTOMER'), rateLimit(20), async (req: Au
     const passengerCount = assertPassengerCount(req.body.passengerCount);
     const paymentMethod = assertPaymentMethod(req.body.paymentMethod || 'CASH');
     const airConditioningRequired = Boolean(req.body.airConditioningRequired);
+    const bookingMode = normalizeBookingMode(req.body.bookingMode);
     const pricingRule = defaultPricingRules[vehicleType] || defaultPricingRules.CAR;
     const route = await geoService.routeForRide(pickup, destination, vehicleType);
     const distanceKm = Math.round((route.distanceMeters / 1000) * 100) / 100;
     const durationMins = Math.max(1, Math.ceil(route.durationSeconds / 60));
     const fare = calculateFare(distanceKm, durationMins, pricingRule, 1);
 
-    if (paymentMethod === 'WALLET') {
+    if (paymentMethod === 'WALLET' && bookingMode === 'FAST') {
       // Fail at booking time rather than after the trip, when the wallet debit would be rejected.
       const balance = await paymentService.getWalletBalance(req.user!.uid, usePersistentStore(req));
       if (balance < fare.grossFare) {
@@ -1451,6 +1641,16 @@ app.post('/api/rides', requireApiAuth('CUSTOMER'), rateLimit(20), async (req: Au
 
     const now = new Date().toISOString();
     const rideId = `ride_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const bounds = biddingBounds(fare.grossFare);
+    const customerProposedFare = req.body.customerProposedFare === undefined ? undefined : Math.round(Number(req.body.customerProposedFare));
+    if (bookingMode === 'BIDDING') {
+      if (!Number.isFinite(customerProposedFare || NaN)) {
+        return sendError(res, 400, 'customerProposedFare is required for BIDDING rides', 'CUSTOMER_PROPOSED_FARE_REQUIRED');
+      }
+      if (customerProposedFare! < bounds.fareFloor || customerProposedFare! > bounds.fareCeiling) {
+        return sendError(res, 400, 'Customer proposed fare is outside allowed bidding limits', 'CUSTOMER_PROPOSED_FARE_OUT_OF_RANGE', bounds);
+      }
+    }
     const ride: Ride = {
       id: rideId,
       rideId,
@@ -1478,7 +1678,14 @@ app.post('/api/rides', requireApiAuth('CUSTOMER'), rateLimit(20), async (req: Au
       routePolyline: route.polyline,
       fare,
       estimatedFare: fare.grossFare,
-      finalFare: fare.grossFare,
+      finalFare: bookingMode === 'FAST' ? fare.grossFare : undefined,
+      bookingMode,
+      serverEstimatedFare: fare.grossFare,
+      customerProposedFare: bookingMode === 'BIDDING' ? customerProposedFare : undefined,
+      fareFloor: bookingMode === 'BIDDING' ? bounds.fareFloor : undefined,
+      fareCeiling: bookingMode === 'BIDDING' ? bounds.fareCeiling : undefined,
+      biddingStatus: bookingMode === 'BIDDING' ? 'OPEN' : undefined,
+      biddingExpiresAt: bookingMode === 'BIDDING' ? new Date(Date.parse(now) + BIDDING_TTL_MS).toISOString() : undefined,
       paymentMethod,
       paymentStatus: 'PENDING',
       createdAt: now
@@ -1675,6 +1882,10 @@ function updateRideTransition(
 app.post('/api/rides/:id/accept', requireApiAuth('DRIVER'), rateLimit(30), async (req: AuthenticatedRequest, res: Response) => {
   if (usePersistentStore(req)) {
     try {
+      const existingRide = await firestoreRideRepository.getRide(req.params.id);
+      if (existingRide?.bookingMode === 'BIDDING') {
+        return sendError(res, 409, 'Bidding rides must be assigned by customer bid selection', 'BIDDING_SELECTION_REQUIRED');
+      }
       const ride = await firestoreDispatchRepository.acceptRide(
         req.params.id,
         req.user!.uid,
@@ -1691,6 +1902,9 @@ app.post('/api/rides/:id/accept', requireApiAuth('DRIVER'), rateLimit(30), async
 
   const ride = ridesStore.get(req.params.id);
   if (!ride) return sendError(res, 404, 'Ride not found', 'RIDE_NOT_FOUND');
+  if (ride.bookingMode === 'BIDDING') {
+    return sendError(res, 409, 'Bidding rides must be assigned by customer bid selection', 'BIDDING_SELECTION_REQUIRED');
+  }
   if (ride.driverId && ride.driverId !== req.user!.uid) {
     metrics.increment('ride_assignment_conflicts_total');
     return sendError(res, 409, 'Ride already assigned to another driver', 'RIDE_ALREADY_ASSIGNED');
@@ -1722,11 +1936,13 @@ app.get('/api/dispatch/incoming', requireApiAuth('DRIVER'), rateLimit(120), asyn
   if (usePersistentStore(req)) {
     try {
       const activeRide = await firestoreRideRepository.listActiveRideForUser(req.user!.uid, 'DRIVER');
+      const biddingRide = activeRide ? null : (await firestoreRideRepository.listSearchingRidesForDriver(req.user!.uid))
+        .find((ride) => ride.bookingMode === 'BIDDING' && ride.biddingStatus === 'OPEN' && !biddingExpired(ride)) || null;
       const incomingRide = activeRide || (await firestoreDispatchRepository.getOrCreateOfferForDriver(
           req.user!.uid,
-          await firestoreRideRepository.listSearchingRidesForDriver(req.user!.uid),
+          (await firestoreRideRepository.listSearchingRidesForDriver(req.user!.uid)).filter((ride) => ride.bookingMode !== 'BIDDING'),
           RIDE_OFFER_TTL_MS
-        ));
+        )) || biddingRide;
       return sendSuccess(res, incomingRide, incomingRide ? 'Incoming ride fetched' : 'No eligible ride offer is currently available');
     } catch (error) {
       return sendPersistenceError(res, error);
@@ -1735,12 +1951,13 @@ app.get('/api/dispatch/incoming', requireApiAuth('DRIVER'), rateLimit(120), asyn
 
   const driverId = req.user!.uid;
   const activeRide = findActiveRideForDriver(driverId);
+  const biddingRide = activeRide ? null : activeBiddingRideForDriver(driverId);
   const incomingRide = activeRide || pickSearchingRideForDriver(
     Array.from(ridesStore.values())
-      .filter((ride) => ride.status === 'SEARCHING_DRIVER' && !ride.driverId && !ride.declinedByDriverIds?.includes(driverId))
+      .filter((ride) => ride.status === 'SEARCHING_DRIVER' && ride.bookingMode !== 'BIDDING' && !ride.driverId && !ride.declinedByDriverIds?.includes(driverId))
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
     driverId
-  );
+  ) || biddingRide;
 
   return sendSuccess(res, incomingRide, 'Incoming ride fetched');
 });
@@ -1770,6 +1987,190 @@ app.post('/api/rides/:id/decline', requireApiAuth('DRIVER'), rateLimit(30), asyn
   rideOffers.delete(ride.id);
   metrics.increment('rides_declined_total');
   return sendSuccess(res, updated, 'Ride declined');
+});
+
+app.get('/api/rides/:id/bids', requireApiAuth('CUSTOMER'), rateLimit(60), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const ride = usePersistentStore(req) ? await firestoreRideRepository.getRide(req.params.id) : ridesStore.get(req.params.id);
+    if (!ride) return sendError(res, 404, 'Ride not found', 'RIDE_NOT_FOUND');
+    if (ride.customerId !== req.user!.uid && ride.passengerId !== req.user!.uid) {
+      return sendError(res, 403, 'Only the ride customer can read bids', 'RIDE_FORBIDDEN');
+    }
+    const bids = usePersistentStore(req)
+      ? await getPersistentRideBids(req.params.id)
+      : [...rideBidsStore.values()].filter((bid) => bid.rideId === req.params.id);
+    return sendSuccess(res, bids.sort((left, right) => left.amount - right.amount), 'Ride bids fetched');
+  } catch (error) {
+    return sendPersistenceError(res, error);
+  }
+});
+
+app.post('/api/rides/:id/bids', requireApiAuth('DRIVER'), rateLimit(30), async (req: AuthenticatedRequest, res: Response) => {
+  const idempotencyKey = req.headers['x-idempotency-key'] as string;
+  if (!idempotencyKey) return sendError(res, 400, 'x-idempotency-key is required', 'MISSING_IDEMPOTENCY_KEY');
+  try {
+    const ride = usePersistentStore(req) ? await firestoreRideRepository.getRide(req.params.id) : ridesStore.get(req.params.id);
+    if (!ride) return sendError(res, 404, 'Ride not found', 'RIDE_NOT_FOUND');
+    if (ride.bookingMode !== 'BIDDING' || ride.biddingStatus !== 'OPEN' || ride.status !== 'SEARCHING_DRIVER' || ride.driverId) {
+      return sendError(res, 409, 'Bidding is not open for this ride', 'BIDDING_NOT_OPEN');
+    }
+    if (biddingExpired(ride)) return sendError(res, 409, 'Bidding window expired', 'BIDDING_EXPIRED');
+    if (!usePersistentStore(req) && findActiveRideForDriver(req.user!.uid, ride.id)) {
+      return sendError(res, 409, 'Driver already has an active ride', 'DRIVER_ALREADY_BUSY');
+    }
+    const amount = assertFareInBiddingBounds(Number(req.body.amount), ride);
+    const etaMinutes = Math.max(1, Math.min(120, Math.round(Number(req.body.etaMinutes || 8))));
+    if (usePersistentStore(req)) {
+      const bid = await createPersistentRideBid({
+        ride,
+        driverId: req.user!.uid,
+        driverName: typeof req.body.driverName === 'string' ? req.body.driverName : 'MISHWAR Driver',
+        amount,
+        etaMinutes,
+        idempotencyKey,
+        requestId: req.requestId
+      });
+      return sendSuccess(res, bid, 'Ride bid submitted');
+    }
+
+    const scopedKey = `ride-bid:${req.user!.uid}:${idempotencyKey}`;
+    if (processedIdempotencyKeys.has(scopedKey)) {
+      return sendSuccess(res, processedIdempotencyKeys.get(scopedKey)!.response, 'Idempotent ride bid replay returned safely');
+    }
+    const now = new Date().toISOString();
+    const bidId = bidDocId(ride.id, req.user!.uid);
+    const existing = rideBidsStore.get(bidId);
+    if (existing && ['SELECTED', 'WITHDRAWN'].includes(existing.status)) {
+      return sendError(res, 409, 'Bid is not editable', 'BID_NOT_EDITABLE');
+    }
+    const bid: RideBid = {
+      id: bidId,
+      rideId: ride.id,
+      driverId: req.user!.uid,
+      driverName: typeof req.body.driverName === 'string' ? req.body.driverName : 'MISHWAR Driver',
+      driverRating: 5,
+      vehicleType: ride.vehicleType,
+      amount,
+      etaMinutes,
+      status: 'SUBMITTED',
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+      expiresAt: ride.biddingExpiresAt || new Date(Date.parse(now) + BIDDING_TTL_MS).toISOString(),
+      requestId: req.requestId,
+      idempotencyKey
+    };
+    rideBidsStore.set(bid.id, bid);
+    processedIdempotencyKeys.set(scopedKey, { timestamp: Date.now(), response: bid });
+    return sendSuccess(res, bid, existing ? 'Ride bid updated' : 'Ride bid submitted');
+  } catch (error) {
+    const code = (error as Error & { code?: string }).code || (error as Error).message;
+    if (['INVALID_BID_AMOUNT', 'BID_AMOUNT_OUT_OF_RANGE'].includes(code)) {
+      return sendError(res, 400, 'Bid amount is outside allowed limits', code);
+    }
+    return sendPersistenceError(res, error);
+  }
+});
+
+app.post('/api/rides/:id/bids/:bidId/withdraw', requireApiAuth('DRIVER'), rateLimit(30), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (usePersistentStore(req)) {
+      const firebaseAdmin = await getFirebaseAdmin();
+      if (!firebaseAdmin) throw new Error('DATABASE_UNAVAILABLE');
+      const db = firebaseAdmin.admin.firestore(firebaseAdmin.app);
+      const bidRef = db.doc(`rideBids/${req.params.bidId}`);
+      const snap = await bidRef.get();
+      if (!snap.exists) return sendError(res, 404, 'Bid not found', 'BID_NOT_FOUND');
+      const bid = snap.data() as unknown as RideBid;
+      if (bid.driverId !== req.user!.uid || bid.rideId !== req.params.id) return sendError(res, 403, 'Bid forbidden', 'BID_FORBIDDEN');
+      if (bid.status === 'SELECTED') return sendError(res, 409, 'Selected bid cannot be withdrawn', 'BID_NOT_EDITABLE');
+      const updated = { ...bid, status: 'WITHDRAWN' as const, withdrawnAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      await bidRef.set(updated, { merge: true });
+      return sendSuccess(res, updated, 'Ride bid withdrawn');
+    }
+    const bid = rideBidsStore.get(req.params.bidId);
+    if (!bid) return sendError(res, 404, 'Bid not found', 'BID_NOT_FOUND');
+    if (bid.driverId !== req.user!.uid || bid.rideId !== req.params.id) return sendError(res, 403, 'Bid forbidden', 'BID_FORBIDDEN');
+    if (bid.status === 'SELECTED') return sendError(res, 409, 'Selected bid cannot be withdrawn', 'BID_NOT_EDITABLE');
+    const updated = { ...bid, status: 'WITHDRAWN' as const, withdrawnAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    rideBidsStore.set(updated.id, updated);
+    return sendSuccess(res, updated, 'Ride bid withdrawn');
+  } catch (error) {
+    return sendPersistenceError(res, error);
+  }
+});
+
+app.post('/api/rides/:id/bids/:bidId/select', requireApiAuth('CUSTOMER'), rateLimit(20), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (usePersistentStore(req)) {
+      const ride = await selectPersistentRideBid({ rideId: req.params.id, bidId: req.params.bidId, customerId: req.user!.uid, requestId: req.requestId });
+      await notifyRideParticipants(ride, 'تم اختيار عرض الكابتن', 'الكابتن في الطريق إليك.', { event: 'bid_selected' });
+      return sendSuccess(res, ride, 'Ride bid selected');
+    }
+
+    const ride = ridesStore.get(req.params.id);
+    const bid = rideBidsStore.get(req.params.bidId);
+    if (!ride) return sendError(res, 404, 'Ride not found', 'RIDE_NOT_FOUND');
+    if (!bid) return sendError(res, 404, 'Bid not found', 'BID_NOT_FOUND');
+    if (ride.customerId !== req.user!.uid && ride.passengerId !== req.user!.uid) return sendError(res, 403, 'Ride forbidden', 'RIDE_FORBIDDEN');
+    if (ride.bookingMode !== 'BIDDING' || ride.biddingStatus !== 'OPEN' || ride.selectedBidId) return sendError(res, 409, 'A bid was already selected', 'BID_ALREADY_SELECTED');
+    if (ride.status !== 'SEARCHING_DRIVER' || ride.driverId) return sendError(res, 409, 'Ride is not available', 'RIDE_NOT_AVAILABLE');
+    if (bid.rideId !== ride.id || bid.status !== 'SUBMITTED') return sendError(res, 409, 'Bid is not available', 'BID_NOT_AVAILABLE');
+    if (biddingExpired(ride) || Date.parse(bid.expiresAt) <= Date.now()) return sendError(res, 409, 'Bid expired', 'BID_EXPIRED');
+    if (findActiveRideForDriver(bid.driverId, ride.id)) return sendError(res, 409, 'Driver already has an active ride', 'DRIVER_ALREADY_BUSY');
+
+    activeRideLocks.set(ride.id, bid.driverId);
+    const now = new Date().toISOString();
+    const updated: Ride = {
+      ...ride,
+      driverId: bid.driverId,
+      driverName: bid.driverName || 'MISHWAR Driver',
+      driverRating: bid.driverRating,
+      status: 'DRIVER_ARRIVING',
+      fare: fareWithFinalAmount(ride, bid.amount),
+      finalFare: bid.amount,
+      selectedBidId: bid.id,
+      biddingStatus: 'SELECTED',
+      assignedAt: now
+    };
+    ridesStore.set(ride.id, updated);
+    rideBidsStore.set(bid.id, { ...bid, status: 'SELECTED', selectedAt: now, updatedAt: now });
+    for (const other of rideBidsStore.values()) {
+      if (other.rideId === ride.id && other.id !== bid.id && other.status === 'SUBMITTED') {
+        rideBidsStore.set(other.id, { ...other, status: 'REJECTED', rejectedAt: now, updatedAt: now });
+      }
+    }
+    await notifyRideParticipants(updated, 'تم اختيار عرض الكابتن', 'الكابتن في الطريق إليك.', { event: 'bid_selected' });
+    return sendSuccess(res, updated, 'Ride bid selected');
+  } catch (error) {
+    return sendPersistenceError(res, error);
+  }
+});
+
+app.post('/api/rides/:id/bidding/cancel', requireApiAuth('CUSTOMER'), rateLimit(20), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (usePersistentStore(req)) {
+      const ride = await firestoreRideRepository.transitionRide(req.params.id, 'CANCELLED_BY_CUSTOMER', {
+        cancellationReason: typeof req.body.reason === 'string' ? req.body.reason : 'Bidding cancelled by customer',
+        cancelledByRole: 'CUSTOMER',
+        cancelledAt: new Date().toISOString(),
+        biddingStatus: 'CANCELLED'
+      }, { actor: auditActorFromRequest(req), eventType: 'RIDE_CANCELLED' });
+      return sendSuccess(res, ride, 'Bidding cancelled');
+    }
+    const ride = ridesStore.get(req.params.id);
+    if (!ride) return sendError(res, 404, 'Ride not found', 'RIDE_NOT_FOUND');
+    if (ride.customerId !== req.user!.uid && ride.passengerId !== req.user!.uid) return sendError(res, 403, 'Ride forbidden', 'RIDE_FORBIDDEN');
+    const result = updateRideTransition(ride.id, 'CANCELLED_BY_CUSTOMER', {
+      cancellationReason: typeof req.body.reason === 'string' ? req.body.reason : 'Bidding cancelled by customer',
+      cancelledByRole: 'CUSTOMER',
+      cancelledAt: new Date().toISOString(),
+      biddingStatus: 'CANCELLED'
+    });
+    if (!result.success) return sendError(res, 409, result.error || 'Bidding cancel failed', result.error || 'BIDDING_CANCEL_FAILED');
+    return sendSuccess(res, result.ride, 'Bidding cancelled');
+  } catch (error) {
+    return sendPersistenceError(res, error);
+  }
 });
 
 app.post('/api/rides/:id/cancel', requireApiAuth(), rateLimit(30), async (req: AuthenticatedRequest, res: Response) => {

@@ -1,4 +1,5 @@
 <resources>
+    <string name="app_name">مشوار كابتن</string>
     <string name="default_notification_channel_id">ride_updates</string>
     <string name="ride_updates_channel_name">Ride Updates</string>
     <string name="ride_updates_channel_description">Ride offers, status, and payment updates.</string>

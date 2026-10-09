@@ -45,4 +45,33 @@ void main() {
 
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets('driver navigation reaches rides, finance, and account tabs',
+      (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiProvider.overrideWithValue(_FakeMishwarApi())],
+        child: const MaterialApp(
+          home: DriverHomeScreen(routingEnabled: false),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await tester.tap(find.text('الرحلات'));
+    await tester.pumpAndSettle();
+    expect(find.text('سجل الرحلات'), findsOneWidget);
+
+    await tester.tap(find.text('المالية'));
+    await tester.pumpAndSettle();
+    expect(find.text('حسابي المالي'), findsWidgets);
+
+    await tester.tap(find.text('حسابي'));
+    await tester.pumpAndSettle();
+    expect(find.text('كابتن مشوار'), findsWidgets);
+
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
 }

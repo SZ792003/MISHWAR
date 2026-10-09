@@ -368,6 +368,15 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /rideBids/{bidId} {
+      allow read: if isAuthenticated() && (
+        resource.data.driverId == request.auth.uid ||
+        isRideParticipant(resource.data.rideId) ||
+        isAdmin()
+      );
+      allow write: if isAdmin();
+    }
+
     match /rideOfferLocks/{rideId} {
       allow read, write: if isAdmin();
     }

@@ -63,6 +63,8 @@ export type KycStatus =
   | 'needs_resubmission';
 
 export type PaymentMethod = 'CASH' | 'WALLET' | 'CARD' | 'DIGITAL_PROVIDER';
+export type BookingMode = 'FAST' | 'BIDDING';
+export type BiddingStatus = 'OPEN' | 'SELECTED' | 'CANCELLED' | 'EXPIRED';
 export type PaymentMethodCode = 'cash' | 'wallet' | 'digital_provider';
 export type PaymentStatus =
   | 'PENDING'
@@ -120,6 +122,7 @@ export interface Money {
   currency: string;
 }
 export type RideOfferStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED';
+export type RideBidStatus = 'SUBMITTED' | 'WITHDRAWN' | 'SELECTED' | 'REJECTED' | 'EXPIRED';
 
 export type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
 
@@ -643,6 +646,14 @@ export interface Ride {
   fare: FareCalculation;
   estimatedFare?: number; // Item 8 alias
   finalFare?: number;     // Item 8 alias
+  bookingMode?: BookingMode;
+  customerProposedFare?: number;
+  serverEstimatedFare?: number;
+  fareFloor?: number;
+  fareCeiling?: number;
+  selectedBidId?: string;
+  biddingStatus?: BiddingStatus;
+  biddingExpiresAt?: string;
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus;
   
@@ -680,6 +691,27 @@ export interface RideOffer {
   acceptedAt?: string;
   rejectedAt?: string;
   cancelledAt?: string;
+}
+
+export interface RideBid {
+  id: string;
+  rideId: string;
+  driverId: string;
+  driverName?: string;
+  driverRating?: number;
+  vehicleType?: VehicleType;
+  amount: number;
+  etaMinutes: number;
+  status: RideBidStatus;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  selectedAt?: string;
+  withdrawnAt?: string;
+  rejectedAt?: string;
+  expiredAt?: string;
+  requestId?: string;
+  idempotencyKey?: string;
 }
 
 export interface DriverLiveLocation {

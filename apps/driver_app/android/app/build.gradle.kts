@@ -8,6 +8,21 @@ if (hasReleaseKeystore) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
+fun validateReleaseEnvironment() {
+    val appMode = ((project.findProperty("mishwarReleaseAppMode") as String?)
+        ?: System.getenv("MISHWAR_RELEASE_APP_MODE")
+        ?: "").lowercase()
+    val apiUrl = ((project.findProperty("mishwarReleaseApiUrl") as String?)
+        ?: System.getenv("MISHWAR_RELEASE_API_URL")
+        ?: "").lowercase()
+    require(appMode == "pilot" || appMode == "production") {
+        "Release builds require -PmishwarReleaseAppMode=pilot|production or MISHWAR_RELEASE_APP_MODE."
+    }
+    require(apiUrl.startsWith("https://") && !apiUrl.contains("localhost") && !apiUrl.contains("127.0.0.1") && !apiUrl.contains("demo")) {
+        "Release builds require a real HTTPS backend via -PmishwarReleaseApiUrl or MISHWAR_RELEASE_API_URL."
+    }
+}
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -17,7 +32,7 @@ plugins {
 
 android {
     namespace = "com.mishwar.driver"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -30,7 +45,7 @@ android {
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 36
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
         // You can force using the value of versionCode by specifying the `-P force-version-code-ignoring-abi=true`
@@ -58,6 +73,16 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
         }
+    }
+}
+
+gradle.taskGraph.whenReady {
+    val buildingRelease = allTasks.any {
+        it.name.contains("release", ignoreCase = true) &&
+            (it.name.contains("bundle", ignoreCase = true) || it.name.contains("assemble", ignoreCase = true))
+    }
+    if (buildingRelease) {
+        validateReleaseEnvironment()
     }
 }
 
