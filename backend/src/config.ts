@@ -50,6 +50,7 @@ export const backendConfig = {
   rideCreationEnabled: toBool(process.env.RIDE_CREATION_ENABLED, true),
   sosEscalationEnabled: toBool(process.env.SOS_ESCALATION_ENABLED, true),
   newDispatchEnabled: toBool(process.env.NEW_DISPATCH_ENABLED, true),
+  dispatchOfferTtlMs: Number(process.env.DISPATCH_OFFER_TTL_MS || 15000),
   geoProviderEnabled: toBool(process.env.GEO_PROVIDER_ENABLED, true),
   releaseVersion: process.env.RELEASE_VERSION || '',
   releaseCommit: process.env.RELEASE_COMMIT || '',
@@ -73,3 +74,9 @@ export const backendConfig = {
 
 export const isDemoBackend = (): boolean => backendConfig.mode === 'demo' || backendConfig.nodeEnv === 'development';
 export const isStrictBackend = (): boolean => backendConfig.mode === 'pilot' || backendConfig.mode === 'staging' || backendConfig.mode === 'production';
+export const hasExplicitFirebaseAdminCredentials = (): boolean => {
+  return Boolean(
+    backendConfig.googleApplicationCredentials ||
+    (backendConfig.firebaseClientEmail && backendConfig.firebasePrivateKey)
+  );
+};

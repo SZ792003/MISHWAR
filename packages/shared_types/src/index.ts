@@ -88,6 +88,8 @@ export type TransactionType =
   | 'wallet_credit'
   | 'driver_earning'
   | 'platform_commission'
+  | 'commission_settlement'
+  | 'commission_offset'
   | 'refund'
   | 'reversal'
   | 'adjustment';
@@ -269,14 +271,19 @@ export interface FinancialTransaction {
 export interface DriverFinanceSummary {
   driverId: string;
   currency: string;
+  totalRideCount: number;
+  totalRideGross: number;
   availableBalance: number;
   pendingBalance: number;
   reservedBalance: number;
   totalEarnings: number;
   totalPlatformCommission: number;
+  totalCommissionCollected: number;
+  outstandingCommissionDebt: number;
   totalPaidOut: number;
   recentTransactions: FinancialTransaction[];
   payouts: DriverPayout[];
+  settlements?: FinancialTransaction[];
 }
 
 export interface DriverPayout {

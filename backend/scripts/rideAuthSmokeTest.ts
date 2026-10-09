@@ -152,6 +152,13 @@ const main = async (): Promise<void> => {
     });
     assert(completed.status === 200, 'ride complete failed');
 
+    const arrivedAfterComplete = await request<Record<string, unknown>>(baseUrl, `/api/rides/${rideId}/arrived`, {
+      method: 'POST',
+      role: 'DRIVER',
+      uid: 'qa_driver'
+    });
+    assert(arrivedAfterComplete.status === 409, 'completed ride should reject older state transitions');
+
     const rideToCancel = await createRide(baseUrl, 'qa_cancel_customer', 'qa-ride-auth-cancel');
     const cancelled = await request<Record<string, unknown>>(baseUrl, `/api/rides/${rideToCancel}/cancel`, {
       method: 'POST',

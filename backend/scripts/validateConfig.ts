@@ -44,6 +44,8 @@ const geo = validateGeoProviderConfig();
 
 if (strict) {
   if (!backendConfig.firebaseProjectId) fail(`${mode} requires FIREBASE_PROJECT_ID`);
+  if (!backendConfig.useRealAuth) fail(`${mode} requires USE_REAL_AUTH=true so Firebase ID tokens are mandatory`);
+  if (!backendConfig.useRealDatabase) fail(`${mode} requires USE_REAL_DATABASE=true so rides, dispatch, and finance never use memory persistence`);
   if (backendConfig.useRealAuth && !backendConfig.firebaseProjectId) fail(`${mode} real auth requires Firebase project configuration`);
   if (backendConfig.useRealDatabase && !backendConfig.firebaseProjectId) fail(`${mode} real database requires Firebase project configuration`);
   if (backendConfig.useRealPayment && !backendConfig.paymentProvider) fail(`${mode} real payment requires PAYMENT_PROVIDER`);

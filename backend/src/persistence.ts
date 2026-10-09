@@ -1,4 +1,4 @@
-import { DriverLiveLocation, PaymentMethod, Ride, RideStatus, WalletLedgerEntry } from '../../packages/shared_types/src';
+import { DriverLiveLocation, PaymentMethod, Ride, RideOffer, RideStatus, WalletLedgerEntry } from '../../packages/shared_types/src';
 import { AuditActor, AuditEventType, auditService } from './auditService';
 import { getFirebaseAdmin } from './auth';
 import { backendConfig, isStrictBackend } from './config';
@@ -67,6 +67,9 @@ const allowedTransitions: Record<RideStatus, RideStatus[]> = {
 };
 
 const asRide = (data: Record<string, unknown> | undefined): Ride => data as unknown as Ride;
+const asRideOffer = (data: Record<string, unknown> | undefined): RideOffer => data as unknown as RideOffer;
+const rideOfferDocId = (rideId: string, driverId: string): string => `${rideId}_${driverId}`;
+const rideOfferExpired = (offer: RideOffer, now = nowIso()): boolean => Date.parse(offer.expiresAt) <= Date.parse(now);
 
 const adminContext = async (): Promise<FirebaseContext> => {
   const firebaseAdmin = await getFirebaseAdmin();
@@ -163,14 +166,31 @@ export class FirestoreRideRepository {
     const firebaseAdmin = await adminContext();
     return runFirestoreTransaction(firebaseAdmin, async (tx, db) => {
       const rideRef = db.doc(`rides/${rideId}`);
-      const rideSnap = await tx.get(rideRef);
+      const lockRef = db.doc(`rideOfferLocks/${rideId}`);
+      const [rideSnap, lockSnap] = await Promise.all([tx.get(rideRef), tx.get(lockRef)]);
       if (!rideSnap.exists) throw new Error('RIDE_NOT_FOUND');
       const ride = asRide(rideSnap.data());
       if (ride.status !== 'SEARCHING_DRIVER' || ride.driverId) throw new Error('RIDE_NOT_AVAILABLE');
 
       const declinedByDriverIds = Array.from(new Set([...(ride.declinedByDriverIds || []), driverId]));
-      const updated = { ...ride, declinedByDriverIds, updatedAt: nowIso(), serverUpdatedAt: firestoreServerTimestamp(firebaseAdmin) };
+      const now = nowIso();
+      const offerId = rideOfferDocId(rideId, driverId);
+      const updated = { ...ride, declinedByDriverIds, updatedAt: now, serverUpdatedAt: firestoreServerTimestamp(firebaseAdmin) };
       tx.update(rideRef, { declinedByDriverIds, updatedAt: updated.updatedAt, serverUpdatedAt: updated.serverUpdatedAt });
+      tx.set(db.doc(`rideOffers/${offerId}`), {
+        status: 'REJECTED',
+        rejectedAt: now,
+        updatedAt: now,
+        serverUpdatedAt: firestoreServerTimestamp(firebaseAdmin)
+      }, { merge: true });
+      if (lockSnap.exists && lockSnap.data()?.driverId === driverId && lockSnap.data()?.status === 'PENDING') {
+        tx.set(lockRef, {
+          status: 'REJECTED',
+          rejectedAt: now,
+          updatedAt: now,
+          serverUpdatedAt: firestoreServerTimestamp(firebaseAdmin)
+        }, { merge: true });
+      }
       auditService.logInTransaction(tx, db, {
         ...actor,
         eventType: 'RIDE_DECLINED',
@@ -295,6 +315,179 @@ export class FirestoreRideRepository {
 }
 
 export class FirestoreDispatchRepository {
+  async getOrCreateOfferForDriver(driverId: string, candidateRides: Ride[], ttlMs: number): Promise<Ride | null> {
+    const activeRide = await this.findActiveOfferRideForDriver(driverId);
+    if (activeRide) return activeRide;
+
+    for (const ride of candidateRides) {
+      try {
+        return await this.createOfferForRide(ride.id, driverId, ttlMs);
+      } catch (error) {
+        const code = error instanceof Error ? error.message : '';
+        if ([
+          'RIDE_NOT_AVAILABLE',
+          'OFFER_LOCKED',
+          'OFFER_ALREADY_SEEN',
+          'DRIVER_ALREADY_BUSY',
+          'DRIVER_NOT_ELIGIBLE'
+        ].includes(code)) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    return null;
+  }
+
+  private async findActiveOfferRideForDriver(driverId: string): Promise<Ride | null> {
+    const firebaseAdmin = await adminContext();
+    const now = nowIso();
+    const query = (firebaseAdmin.admin.firestore(firebaseAdmin.app).collection('rideOffers') as unknown as {
+      where: (field: string, op: string, value: unknown) => unknown;
+    }).where('driverId', '==', driverId) as unknown as {
+      where: (field: string, op: string, value: unknown) => {
+        orderBy: (field: string, direction: 'desc') => { limit: (count: number) => { get: () => Promise<{ docs: Array<{ data: () => Record<string, unknown> }> }> } };
+      };
+    };
+    const snap = await query.where('status', '==', 'PENDING').orderBy('createdAt', 'desc').limit(20).get();
+    const db = firebaseAdmin.admin.firestore(firebaseAdmin.app);
+    for (const doc of snap.docs) {
+      const offer = asRideOffer(doc.data());
+      if (rideOfferExpired(offer, now)) {
+        await this.expireOffer(offer.rideId, offer.driverId);
+        continue;
+      }
+      const rideSnap = await db.doc(`rides/${offer.rideId}`).get();
+      if (!rideSnap.exists) {
+        await this.expireOffer(offer.rideId, offer.driverId);
+        continue;
+      }
+      const ride = asRide(rideSnap.data());
+      if (ride.status === 'SEARCHING_DRIVER' && !ride.driverId) return ride;
+      await this.expireOffer(offer.rideId, offer.driverId);
+    }
+    return null;
+  }
+
+  private async createOfferForRide(rideId: string, driverId: string, ttlMs: number): Promise<Ride> {
+    const firebaseAdmin = await adminContext();
+    return runFirestoreTransaction(firebaseAdmin, async (tx, db) => {
+      const offerId = rideOfferDocId(rideId, driverId);
+      const rideRef = db.doc(`rides/${rideId}`);
+      const offerRef = db.doc(`rideOffers/${offerId}`);
+      const lockRef = db.doc(`rideOfferLocks/${rideId}`);
+      const driverOpRef = db.doc(`driverOperational/${driverId}`);
+      const kycRef = db.doc(`driverKyc/${driverId}`);
+
+      const [rideSnap, offerSnap, lockSnap, driverOpSnap, kycSnap] = await Promise.all([
+        tx.get(rideRef),
+        tx.get(offerRef),
+        tx.get(lockRef),
+        tx.get(driverOpRef),
+        tx.get(kycRef)
+      ]);
+
+      if (!rideSnap.exists) throw new Error('RIDE_NOT_FOUND');
+      const ride = asRide(rideSnap.data());
+      if (ride.status !== 'SEARCHING_DRIVER' || ride.driverId || ride.declinedByDriverIds?.includes(driverId)) {
+        throw new Error('RIDE_NOT_AVAILABLE');
+      }
+
+      const now = nowIso();
+      if (offerSnap.exists) {
+        const existingOffer = asRideOffer(offerSnap.data());
+        if (existingOffer.status === 'PENDING' && !rideOfferExpired(existingOffer, now)) return ride;
+        throw new Error('OFFER_ALREADY_SEEN');
+      }
+
+      const driverOp = driverOpSnap.exists ? driverOpSnap.data() : null;
+      if (
+        driverOp?.currentRideId &&
+        driverOp.currentRideId !== rideId &&
+        activeRideStatuses(driverOp.currentRideStatus as RideStatus | undefined)
+      ) {
+        throw new Error('DRIVER_ALREADY_BUSY');
+      }
+
+      const kyc = kycSnap.exists ? kycSnap.data() : null;
+      if (kyc?.kycStatus && kyc.kycStatus !== 'approved') throw new Error('DRIVER_NOT_ELIGIBLE');
+
+      if (lockSnap.exists) {
+        const lock = lockSnap.data() || {};
+        const lockedForOtherDriver = lock.driverId !== driverId && lock.status === 'PENDING' && typeof lock.expiresAt === 'string' && Date.parse(lock.expiresAt) > Date.parse(now);
+        if (lockedForOtherDriver) throw new Error('OFFER_LOCKED');
+        if (lock.status === 'PENDING' && typeof lock.offerId === 'string' && typeof lock.driverId === 'string') {
+          tx.set(db.doc(`rideOffers/${lock.offerId}`), {
+            status: 'EXPIRED',
+            expiredAt: now,
+            updatedAt: now,
+            serverUpdatedAt: firestoreServerTimestamp(firebaseAdmin)
+          }, { merge: true });
+        }
+      }
+
+      const expiresAt = new Date(Date.parse(now) + ttlMs).toISOString();
+      const offer: RideOffer = {
+        id: offerId,
+        rideId,
+        driverId,
+        status: 'PENDING',
+        createdAt: now,
+        expiresAt
+      };
+      const stampedOffer = {
+        ...offer,
+        updatedAt: now,
+        serverCreatedAt: firestoreServerTimestamp(firebaseAdmin),
+        serverUpdatedAt: firestoreServerTimestamp(firebaseAdmin)
+      };
+      tx.set(offerRef, stampedOffer as unknown as Record<string, unknown>);
+      tx.set(lockRef, {
+        rideId,
+        offerId,
+        driverId,
+        status: 'PENDING',
+        createdAt: now,
+        updatedAt: now,
+        expiresAt,
+        serverCreatedAt: firestoreServerTimestamp(firebaseAdmin),
+        serverUpdatedAt: firestoreServerTimestamp(firebaseAdmin)
+      });
+      return ride;
+    });
+  }
+
+  async expireOffer(rideId: string, driverId: string): Promise<void> {
+    const firebaseAdmin = await adminContext();
+    await runFirestoreTransaction(firebaseAdmin, async (tx, db) => {
+      const offerId = rideOfferDocId(rideId, driverId);
+      const offerRef = db.doc(`rideOffers/${offerId}`);
+      const lockRef = db.doc(`rideOfferLocks/${rideId}`);
+      const [offerSnap, lockSnap] = await Promise.all([tx.get(offerRef), tx.get(lockRef)]);
+      const now = nowIso();
+      if (offerSnap.exists) {
+        const offer = asRideOffer(offerSnap.data());
+        if (offer.status === 'PENDING') {
+          tx.set(offerRef, {
+            status: 'EXPIRED',
+            expiredAt: now,
+            updatedAt: now,
+            serverUpdatedAt: firestoreServerTimestamp(firebaseAdmin)
+          }, { merge: true });
+        }
+      }
+      if (lockSnap.exists && lockSnap.data()?.offerId === offerId && lockSnap.data()?.status === 'PENDING') {
+        tx.set(lockRef, {
+          status: 'EXPIRED',
+          expiredAt: now,
+          updatedAt: now,
+          serverUpdatedAt: firestoreServerTimestamp(firebaseAdmin)
+        }, { merge: true });
+      }
+    });
+  }
+
   async listEligibleDriverIdsForOffer(vehicleType?: string, limitCount = 20): Promise<string[]> {
     const firebaseAdmin = await adminContext();
     const query = (firebaseAdmin.admin.firestore(firebaseAdmin.app).collection('driverOperational') as unknown as {
@@ -318,12 +511,17 @@ export class FirestoreDispatchRepository {
     const firebaseAdmin = await adminContext();
     return runFirestoreTransaction(firebaseAdmin, async (tx, db) => {
       const rideRef = db.doc(`rides/${rideId}`);
+      const offerId = rideOfferDocId(rideId, driverId);
+      const offerRef = db.doc(`rideOffers/${offerId}`);
+      const lockRef = db.doc(`rideOfferLocks/${rideId}`);
       const driverOpRef = db.doc(`driverOperational/${driverId}`);
       const kycRef = db.doc(`driverKyc/${driverId}`);
       const driverRef = db.doc(`drivers/${driverId}`);
 
-      const [rideSnap, driverOpSnap, kycSnap] = await Promise.all([
+      const [rideSnap, offerSnap, lockSnap, driverOpSnap, kycSnap] = await Promise.all([
         tx.get(rideRef),
+        tx.get(offerRef),
+        tx.get(lockRef),
         tx.get(driverOpRef),
         tx.get(kycRef)
       ]);
@@ -332,6 +530,30 @@ export class FirestoreDispatchRepository {
       const ride = asRide(rideSnap.data());
       if (ride.driverId && ride.driverId !== driverId) throw new Error('RIDE_ALREADY_ASSIGNED');
       if (!['REQUESTED', 'SEARCHING_DRIVER'].includes(ride.status)) throw new Error('RIDE_NOT_AVAILABLE');
+      const now = nowIso();
+
+      if (!ride.driverId) {
+        if (!offerSnap.exists) throw new Error('OFFER_REQUIRED');
+        const offer = asRideOffer(offerSnap.data());
+        if (offer.status !== 'PENDING') throw new Error('OFFER_NOT_AVAILABLE');
+        if (rideOfferExpired(offer, now)) {
+          tx.set(offerRef, {
+            status: 'EXPIRED',
+            expiredAt: now,
+            updatedAt: now,
+            serverUpdatedAt: firestoreServerTimestamp(firebaseAdmin)
+          }, { merge: true });
+          if (lockSnap.exists && lockSnap.data()?.offerId === offerId) {
+            tx.set(lockRef, {
+              status: 'EXPIRED',
+              expiredAt: now,
+              updatedAt: now,
+              serverUpdatedAt: firestoreServerTimestamp(firebaseAdmin)
+            }, { merge: true });
+          }
+          throw new Error('OFFER_EXPIRED');
+        }
+      }
 
       const driverOp = driverOpSnap.exists ? driverOpSnap.data() : null;
       if (
@@ -345,7 +567,7 @@ export class FirestoreDispatchRepository {
       const kyc = kycSnap.exists ? kycSnap.data() : null;
       if (kyc?.kycStatus && kyc.kycStatus !== 'approved') throw new Error('DRIVER_NOT_ELIGIBLE');
 
-      const assignedAt = nowIso();
+      const assignedAt = now;
       const updated: Ride = {
         ...ride,
         driverId,
@@ -357,6 +579,21 @@ export class FirestoreDispatchRepository {
       } as Ride;
 
       tx.update(rideRef, updated as unknown as Record<string, unknown>);
+      tx.set(offerRef, {
+        status: 'ACCEPTED',
+        acceptedAt: assignedAt,
+        updatedAt: assignedAt,
+        serverUpdatedAt: firestoreServerTimestamp(firebaseAdmin)
+      }, { merge: true });
+      tx.set(lockRef, {
+        rideId,
+        offerId,
+        driverId,
+        status: 'ACCEPTED',
+        acceptedAt: assignedAt,
+        updatedAt: assignedAt,
+        serverUpdatedAt: firestoreServerTimestamp(firebaseAdmin)
+      }, { merge: true });
       tx.set(driverOpRef, {
         driverId,
         currentRideId: rideId,

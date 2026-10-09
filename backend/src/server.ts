@@ -20,7 +20,7 @@ import {
   DiagnosticEvent,
   BackupSnapshot
 } from '../../packages/shared_types/src';
-import { backendConfig, isStrictBackend } from './config';
+import { backendConfig, hasExplicitFirebaseAdminCredentials, isStrictBackend } from './config';
 import { AuthenticatedRequest, getFirebaseAdmin, requireAuth, requireRole } from './auth';
 import { approveDriver, isPrivilegedAdminRole, rejectDriver, requireTrustedAdminContext, setTrustedRoleClaim } from './trustedRoles';
 import { auditSessionRevocation, blockUser, requireAccountAdmin, revokeUserSessions, suspendUser, unblockUser } from './accountSecurity';
@@ -458,7 +458,10 @@ function sendPersistenceError(res: Response, error: unknown) {
     RIDE_NOT_ACTIVE: 409,
     LOCATION_STALE: 409,
     INVALID_RIDE_TRANSITION: 409,
-    PAYMENT_METHOD_DISABLED: 400
+    PAYMENT_METHOD_DISABLED: 400,
+    OFFER_REQUIRED: 409,
+    OFFER_NOT_AVAILABLE: 409,
+    OFFER_EXPIRED: 409
   };
   const messageByCode: Record<string, string> = {
     DATABASE_UNAVAILABLE: 'Persistent database is not available',
@@ -472,6 +475,9 @@ function sendPersistenceError(res: Response, error: unknown) {
     LOCATION_STALE: 'Driver location update is stale',
     INVALID_RIDE_TRANSITION: 'Invalid ride transition',
     PAYMENT_METHOD_DISABLED: 'Only CASH and WALLET are enabled in pilot mode',
+    OFFER_REQUIRED: 'This driver does not have an active ride offer',
+    OFFER_NOT_AVAILABLE: 'This ride offer is no longer available',
+    OFFER_EXPIRED: 'This ride offer expired; request the next available offer',
     DATABASE_ERROR: 'Database operation failed'
   };
   return sendError(res, statusByCode[code] || 500, messageByCode[code] || messageByCode.DATABASE_ERROR, code || 'DATABASE_ERROR');
@@ -1187,10 +1193,17 @@ app.get('/api/config/public', (_req: Request, res: Response) => {
 app.get('/ready', async (_req: Request, res: Response) => {
   const requiresFirebase = isStrictBackend() || backendConfig.useRealDatabase || backendConfig.useRealAuth;
   const geoConfig = validateGeoProviderConfig();
+  const credentialSource = backendConfig.firebaseClientEmail && backendConfig.firebasePrivateKey
+    ? 'service_account_env'
+    : backendConfig.googleApplicationCredentials
+      ? 'google_application_credentials'
+      : 'application_default_credentials';
   const checks = {
     requiredConfiguration: !requiresFirebase || Boolean(backendConfig.firebaseProjectId),
     firebaseAdmin: !requiresFirebase,
     firestore: !requiresFirebase,
+    realAuthEnabled: !isStrictBackend() || backendConfig.useRealAuth,
+    realDatabaseEnabled: !isStrictBackend() || backendConfig.useRealDatabase,
     geoProviderConfig: geoConfig.valid
   };
 
@@ -1215,6 +1228,17 @@ app.get('/ready', async (_req: Request, res: Response) => {
     service: 'mishwar-backend',
     mode: backendConfig.mode,
     timestamp: new Date().toISOString(),
+    firebase: {
+      projectIdConfigured: Boolean(backendConfig.firebaseProjectId),
+      credentialSource,
+      explicitCredentialHintConfigured: hasExplicitFirebaseAdminCredentials(),
+      firestoreProbe: 'system/schema'
+    },
+    persistence: {
+      requested: backendConfig.useRealDatabase || isStrictBackend() ? 'firestore' : 'memory',
+      strictModeRequiresFirestore: isStrictBackend(),
+      demoFallbackAllowed: !isStrictBackend()
+    },
     checks
   });
 });
@@ -1588,10 +1612,10 @@ const closedRideStatuses: RideStatus[] = [
   'NO_DRIVER_AVAILABLE'
 ];
 
-// Short-lived exclusive offers so concurrent drivers polling /api/dispatch/incoming are shown
-// different searching rides instead of all racing for the oldest one. Process-local and advisory:
-// accept stays authoritative (ride lock in memory, transaction in Firestore).
-const RIDE_OFFER_TTL_MS = 15_000;
+// Demo-only short-lived exclusive offers so concurrent drivers polling /api/dispatch/incoming
+// are shown different searching rides instead of all racing for the oldest one. Firestore
+// mode uses persistent rideOffers/rideOfferLocks in FirestoreDispatchRepository.
+const RIDE_OFFER_TTL_MS = Math.max(100, backendConfig.dispatchOfferTtlMs);
 const rideOffers = new Map<string, { driverId: string; expiresAt: number }>(); // rideId -> current offer
 
 function pickSearchingRideForDriver(candidates: Ride[], driverId: string): Ride | null {
@@ -1657,7 +1681,6 @@ app.post('/api/rides/:id/accept', requireApiAuth('DRIVER'), rateLimit(30), async
         typeof req.body.driverName === 'string' ? req.body.driverName : 'MISHWAR Driver',
         auditActorFromRequest(req)
       );
-      rideOffers.delete(ride.id);
       metrics.increment('rides_accepted_total');
       await notifyRideParticipants(ride, 'تم قبول المشوار', 'الكابتن في الطريق إليك.', { event: 'ride_accepted' });
       return sendSuccess(res, ride, 'Ride accepted');
@@ -1699,11 +1722,12 @@ app.get('/api/dispatch/incoming', requireApiAuth('DRIVER'), rateLimit(120), asyn
   if (usePersistentStore(req)) {
     try {
       const activeRide = await firestoreRideRepository.listActiveRideForUser(req.user!.uid, 'DRIVER');
-      const incomingRide = activeRide || pickSearchingRideForDriver(
-        await firestoreRideRepository.listSearchingRidesForDriver(req.user!.uid),
-        req.user!.uid
-      );
-      return sendSuccess(res, incomingRide, 'Incoming ride fetched');
+      const incomingRide = activeRide || (await firestoreDispatchRepository.getOrCreateOfferForDriver(
+          req.user!.uid,
+          await firestoreRideRepository.listSearchingRidesForDriver(req.user!.uid),
+          RIDE_OFFER_TTL_MS
+        ));
+      return sendSuccess(res, incomingRide, incomingRide ? 'Incoming ride fetched' : 'No eligible ride offer is currently available');
     } catch (error) {
       return sendPersistenceError(res, error);
     }
@@ -1726,7 +1750,6 @@ app.post('/api/rides/:id/decline', requireApiAuth('DRIVER'), rateLimit(30), asyn
     try {
       // A decline only removes the ride from this driver's queue; it stays SEARCHING_DRIVER for others.
       const updated = await firestoreRideRepository.declineRide(req.params.id, req.user!.uid, auditActorFromRequest(req));
-      rideOffers.delete(updated.id);
       metrics.increment('rides_declined_total');
       return sendSuccess(res, updated, 'Ride declined');
     } catch (error) {
@@ -2330,6 +2353,78 @@ app.get('/api/admin/finance/settlements', requireApiAuth('FINANCE'), rateLimit(6
       usePersistentStore: usePersistentStore(req)
     });
     return sendSuccess(res, [report], 'Settlement reports fetched');
+  } catch (error) {
+    return sendPaymentError(res, error);
+  }
+});
+
+app.get('/api/admin/finance/drivers', requireApiAuth('FINANCE'), rateLimit(60), async (req: AuthenticatedRequest, res: Response) => {
+  const driverId = typeof req.query.driverId === 'string' ? req.query.driverId : '';
+  if (!driverId) return sendError(res, 400, 'driverId query parameter is required', 'DRIVER_ID_REQUIRED');
+  try {
+    const finance = await financialOperationsService.getDriverFinance({
+      user: req.user!,
+      driverId,
+      usePersistentStore: usePersistentStore(req)
+    });
+    return sendSuccess(res, [finance], 'Driver finance accounts fetched');
+  } catch (error) {
+    return sendPaymentError(res, error);
+  }
+});
+
+app.get('/api/admin/finance/drivers/:driverId', requireApiAuth('FINANCE'), rateLimit(60), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const finance = await financialOperationsService.getDriverFinance({
+      user: req.user!,
+      driverId: req.params.driverId,
+      usePersistentStore: usePersistentStore(req)
+    });
+    return sendSuccess(res, finance, 'Driver finance account fetched');
+  } catch (error) {
+    return sendPaymentError(res, error);
+  }
+});
+
+app.post('/api/admin/finance/drivers/:driverId/commission-settlements', requireApiAuth('FINANCE'), rateLimit(20), async (req: AuthenticatedRequest, res: Response) => {
+  const idempotencyKey = req.headers['x-idempotency-key'] as string;
+  if (!idempotencyKey) return sendError(res, 400, 'x-idempotency-key is required', 'MISSING_IDEMPOTENCY_KEY');
+  try {
+    const result = await financialOperationsService.settleDriverCommission({
+      user: req.user!,
+      driverId: req.params.driverId,
+      amount: Number(req.body.amount),
+      method: req.body.method,
+      reference: typeof req.body.reference === 'string' ? req.body.reference : undefined,
+      note: typeof req.body.note === 'string' ? req.body.note : undefined,
+      idempotencyKey,
+      requestId: req.requestId,
+      actor: auditActorFromRequest(req),
+      usePersistentStore: usePersistentStore(req)
+    });
+    return sendSuccess(res, result, 'Commission settlement recorded');
+  } catch (error) {
+    return sendPaymentError(res, error);
+  }
+});
+
+app.post('/api/admin/finance/demo-digital-payments', requireApiAuth('FINANCE'), rateLimit(10), async (req: AuthenticatedRequest, res: Response) => {
+  const idempotencyKey = req.headers['x-idempotency-key'] as string;
+  if (!idempotencyKey) return sendError(res, 400, 'x-idempotency-key is required', 'MISSING_IDEMPOTENCY_KEY');
+  try {
+    const result = await financialOperationsService.recordDemoDigitalPayment({
+      user: req.user!,
+      driverId: String(req.body.driverId || ''),
+      customerId: String(req.body.customerId || ''),
+      rideId: String(req.body.rideId || ''),
+      amount: Number(req.body.amount),
+      allowDebtOffset: req.body.allowDebtOffset === true,
+      idempotencyKey,
+      requestId: req.requestId,
+      actor: auditActorFromRequest(req),
+      usePersistentStore: usePersistentStore(req)
+    });
+    return sendSuccess(res, result, 'Demo digital payment recorded');
   } catch (error) {
     return sendPaymentError(res, error);
   }

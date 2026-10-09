@@ -966,6 +966,18 @@ class _DriverFinanceCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final transactions = (finance?['recentTransactions'] as List?) ?? const [];
     final payouts = (finance?['payouts'] as List?) ?? const [];
+    final settlements = (finance?['settlements'] as List?) ?? const [];
+    final financeChips = [
+      _FinanceChip(label: 'متاح', value: _money(finance?['availableBalance'])),
+      _FinanceChip(label: 'معلق', value: _money(finance?['pendingBalance'])),
+      _FinanceChip(label: 'محجوز', value: _money(finance?['reservedBalance'])),
+      _FinanceChip(label: 'عدد الرحلات', value: '${((finance?['totalRideCount'] as num?) ?? 0).round()}'),
+      _FinanceChip(label: 'إجمالي الأجور', value: _money(finance?['totalRideGross'])),
+      _FinanceChip(label: 'إجمالي الأرباح', value: _money(finance?['totalEarnings'])),
+      _FinanceChip(label: 'عمولة مشوار', value: _money(finance?['totalPlatformCommission'])),
+      _FinanceChip(label: 'العمولة المحصلة', value: _money(finance?['totalCommissionCollected'])),
+      _FinanceChip(label: 'المديونية المتبقية', value: _money(finance?['outstandingCommissionDebt'])),
+    ];
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -985,6 +997,10 @@ class _DriverFinanceCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
+            Text('حسابي المالي', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            Wrap(spacing: 8, runSpacing: 8, children: financeChips),
+            const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -1020,6 +1036,15 @@ class _DriverFinanceCard extends StatelessWidget {
               ...payouts.take(3).map((item) {
                 final payout = Map<String, dynamic>.from(item as Map);
                 return _RideDetail(label: payout['status']?.toString() ?? '', value: _money(payout['amount']));
+              }),
+            ],
+            if (settlements.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text('التسويات والمقاصة', style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 6),
+              ...settlements.take(3).map((item) {
+                final settlement = Map<String, dynamic>.from(item as Map);
+                return _RideDetail(label: settlement['type']?.toString() ?? '', value: _money(settlement['amount']));
               }),
             ],
           ],

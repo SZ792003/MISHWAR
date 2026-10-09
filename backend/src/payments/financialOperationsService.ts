@@ -111,14 +111,49 @@ const txAmountByType = (transactions: FinancialTransaction[], type: string): num
   return transactions.filter((item) => item.type === type && item.status === 'completed').reduce((sum, item) => sum + item.amount, 0);
 };
 
+const cashCommissionDebt = (transactions: FinancialTransaction[], driverId: string): number => {
+  return transactions
+    .filter((item) =>
+      item.type === 'platform_commission' &&
+      item.status === 'completed' &&
+      item.driverId === driverId &&
+      item.source === `driver:${driverId}`
+    )
+    .reduce((sum, item) => sum + item.amount, 0);
+};
+
+const commissionCollected = (transactions: FinancialTransaction[], driverId: string): number => {
+  const nonCashCollected = transactions
+    .filter((item) =>
+      item.type === 'platform_commission' &&
+      item.status === 'completed' &&
+      item.driverId === driverId &&
+      item.source !== `driver:${driverId}`
+    )
+    .reduce((sum, item) => sum + item.amount, 0);
+  return nonCashCollected +
+    txAmountByType(transactions, 'commission_settlement') +
+    txAmountByType(transactions, 'commission_offset');
+};
+
 const financeSummaryFrom = (
   driverId: string,
   transactions: FinancialTransaction[],
   payouts: DriverPayout[]
 ): DriverFinanceSummary => {
   const currency = transactions.find((item) => item.currency)?.currency || 'YER';
+  const ridePaymentKeys = new Set(
+    transactions
+      .filter((item) => ['ride_payment', 'wallet_debit'].includes(item.type) && item.status === 'completed' && item.rideId)
+      .map((item) => item.rideId as string)
+  );
+  const totalRideGross = transactions
+    .filter((item) => ['ride_payment', 'wallet_debit'].includes(item.type) && item.status === 'completed')
+    .reduce((sum, item) => sum + item.amount, 0);
   const totalEarnings = txAmountByType(transactions, 'driver_earning');
   const totalPlatformCommission = txAmountByType(transactions, 'platform_commission');
+  const totalCommissionCollected = commissionCollected(transactions, driverId);
+  const outstandingCommissionDebt = Math.max(0, cashCommissionDebt(transactions, driverId) - txAmountByType(transactions, 'commission_settlement') - txAmountByType(transactions, 'commission_offset'));
   const totalPaidOut = payouts.filter((item) => item.status === 'paid').reduce((sum, item) => sum + item.amount, 0);
   const reservedBalance = payouts
     .filter((item) => ['requested', 'approved', 'processing'].includes(item.status))
@@ -133,14 +168,19 @@ const financeSummaryFrom = (
   return {
     driverId,
     currency,
+    totalRideCount: ridePaymentKeys.size,
+    totalRideGross,
     availableBalance,
     pendingBalance,
     reservedBalance,
     totalEarnings,
     totalPlatformCommission,
+    totalCommissionCollected,
+    outstandingCommissionDebt,
     totalPaidOut,
     recentTransactions: transactions.slice(0, 20),
-    payouts: payouts.slice(0, 20)
+    payouts: payouts.slice(0, 20),
+    settlements: transactions.filter((item) => ['commission_settlement', 'commission_offset'].includes(item.type)).slice(0, 20)
   };
 };
 
@@ -564,6 +604,167 @@ export class FinancialOperationsService {
     return adjustment;
   }
 
+  async settleDriverCommission(params: {
+    user: AuthenticatedFinanceUser;
+    driverId: string;
+    amount: number;
+    method: unknown;
+    reference?: string;
+    note?: string;
+    idempotencyKey: string;
+    requestId?: string;
+    actor: AuditActor;
+    usePersistentStore: boolean;
+  }): Promise<{ settlement: FinancialTransaction; finance: DriverFinanceSummary }> {
+    assertAdmin(params.user);
+    const amount = assertMoneyAmount(params.amount);
+    const method = String(params.method || 'cash_office').trim().toLowerCase();
+    if (!['cash_office', 'bank', 'wallet', 'manual'].includes(method)) {
+      throw new PaymentDomainError('INVALID_SETTLEMENT_METHOD', 'Unsupported settlement method', 400);
+    }
+    if (!params.driverId) throw new PaymentDomainError('DRIVER_ID_REQUIRED', 'driverId is required', 400);
+    if (!params.idempotencyKey) throw new PaymentDomainError('MISSING_IDEMPOTENCY_KEY', 'x-idempotency-key is required', 400);
+    if (!params.usePersistentStore) return this.settleMemoryCommission({ ...params, amount, method });
+
+    const firebaseAdmin = await this.adminContext();
+    return runFirestoreTransaction(firebaseAdmin, async (tx, db) => {
+      const idemRef = db.doc(`idempotencyKeys/${idempotencyDocId('commission-settlement', params.user.uid, params.idempotencyKey)}`);
+      const idemSnap = await tx.get(idemRef);
+      if (idemSnap.exists) return idemSnap.data()?.response as { settlement: FinancialTransaction; finance: DriverFinanceSummary };
+
+      const data = await this.readPersistentFinanceData();
+      const driverTransactions = data.transactions.filter((item) => item.driverId === params.driverId);
+      const finance = financeSummaryFrom(params.driverId, driverTransactions, data.payouts.filter((item) => item.driverId === params.driverId));
+      if (amount <= 0) throw new PaymentDomainError('INVALID_SETTLEMENT_AMOUNT', 'Settlement amount must be greater than zero', 400);
+      const accountRef = db.doc(`driverCommissionAccounts/${params.driverId}`);
+      const accountSnap = await tx.get(accountRef);
+      const accountData = accountSnap.exists ? accountSnap.data() : undefined;
+      const availableDebt = accountSnap.exists
+        ? Number(accountData?.outstandingCommissionDebt ?? finance.outstandingCommissionDebt)
+        : finance.outstandingCommissionDebt;
+      if (amount > availableDebt) {
+        throw new PaymentDomainError('SETTLEMENT_EXCEEDS_DEBT', 'Settlement amount exceeds outstanding commission debt', 409);
+      }
+
+      const settlement = this.buildTransaction({
+        type: 'commission_settlement',
+        amount,
+        currency: finance.currency,
+        driverId: params.driverId,
+        status: 'completed',
+        idempotencyKey: params.idempotencyKey,
+        requestId: params.requestId,
+        source: `driver:${params.driverId}`,
+        destination: 'mishwar_platform',
+        metadata: {
+          method,
+          reference: params.reference || null,
+          note: params.note || null,
+          simulationOnly: false
+        }
+      });
+      tx.set(db.doc(`financialTransactions/${settlement.id}`), { ...settlement, serverCreatedAt: firestoreServerTimestamp(firebaseAdmin) });
+      const updatedFinance = financeSummaryFrom(params.driverId, [settlement, ...driverTransactions], data.payouts.filter((item) => item.driverId === params.driverId));
+      const response = { settlement, finance: updatedFinance };
+      tx.set(accountRef, {
+        driverId: params.driverId,
+        currency: finance.currency,
+        outstandingCommissionDebt: Math.max(0, availableDebt - amount),
+        lastSettlementId: settlement.id,
+        lastSettlementAmount: amount,
+        lastSettlementAt: settlement.completedAt || settlement.createdAt,
+        updatedAt: nowIso(),
+        serverUpdatedAt: firestoreServerTimestamp(firebaseAdmin)
+      }, { merge: true });
+      tx.set(idemRef, { key: params.idempotencyKey, userId: params.user.uid, scope: 'commission-settlement', response, createdAt: nowIso(), serverCreatedAt: firestoreServerTimestamp(firebaseAdmin) });
+      auditService.logInTransaction(tx, db, { ...params.actor, eventType: 'COMMISSION_SETTLEMENT_RECORDED', targetType: 'PAYMENT', targetId: settlement.id, source: 'PAYMENT_BACKEND', metadata: { driverId: params.driverId, amount, currency: settlement.currency, method, reference: params.reference || null } }, firestoreServerTimestamp(firebaseAdmin));
+      return response;
+    });
+  }
+
+  async recordDemoDigitalPayment(params: {
+    user: AuthenticatedFinanceUser;
+    driverId: string;
+    customerId: string;
+    rideId: string;
+    amount: number;
+    allowDebtOffset?: boolean;
+    idempotencyKey: string;
+    requestId?: string;
+    actor: AuditActor;
+    usePersistentStore: boolean;
+  }): Promise<{ payment: Payment; transactions: FinancialTransaction[]; finance: DriverFinanceSummary }> {
+    assertAdmin(params.user);
+    const amount = assertMoneyAmount(params.amount);
+    if (!params.driverId || !params.customerId || !params.rideId) throw new PaymentDomainError('INVALID_DEMO_PAYMENT', 'driverId, customerId and rideId are required', 400);
+    if (!params.idempotencyKey) throw new PaymentDomainError('MISSING_IDEMPOTENCY_KEY', 'x-idempotency-key is required', 400);
+    if (params.usePersistentStore) {
+      const firebaseAdmin = await this.adminContext();
+      const db = firebaseAdmin.admin.firestore(firebaseAdmin.app);
+      const existing = await db.doc(`idempotencyKeys/${idempotencyDocId('demo-digital-payment', params.user.uid, params.idempotencyKey)}`).get();
+      if (existing.exists) return existing.data()?.response as { payment: Payment; transactions: FinancialTransaction[]; finance: DriverFinanceSummary };
+    } else if (memoryIdempotency.has(params.idempotencyKey)) {
+      return memoryIdempotency.get(params.idempotencyKey) as { payment: Payment; transactions: FinancialTransaction[]; finance: DriverFinanceSummary };
+    }
+
+    const platformCommission = Math.round(amount * 0.1);
+    const driverEarning = amount - platformCommission;
+    const now = nowIso();
+    const payment: Payment = {
+      id: `pay_${params.rideId}_demo_digital`,
+      rideId: params.rideId,
+      customerId: params.customerId,
+      driverId: params.driverId,
+      amount,
+      currency: 'YER',
+      method: 'digital_provider',
+      status: 'paid',
+      provider: 'mishwar_demo',
+      providerReference: `demo-${params.idempotencyKey}`,
+      idempotencyKey: params.idempotencyKey,
+      requestId: params.requestId,
+      createdAt: now,
+      updatedAt: now,
+      completedAt: now,
+      metadata: { simulationOnly: true }
+    };
+    const transactions: FinancialTransaction[] = [
+      this.buildTransaction({ type: 'ride_payment', amount, currency: payment.currency, rideId: params.rideId, paymentId: payment.id, customerId: params.customerId, driverId: params.driverId, status: 'completed', idempotencyKey: params.idempotencyKey, requestId: params.requestId, source: `demo_customer:${params.customerId}`, destination: 'mishwar_demo_clearing', metadata: { simulationOnly: true } }),
+      this.buildTransaction({ type: 'platform_commission', amount: platformCommission, currency: payment.currency, rideId: params.rideId, paymentId: payment.id, customerId: params.customerId, driverId: params.driverId, status: 'completed', idempotencyKey: `${params.idempotencyKey}:commission`, requestId: params.requestId, source: 'mishwar_demo_clearing', destination: 'mishwar_platform', metadata: { simulationOnly: true } }),
+      this.buildTransaction({ type: 'driver_earning', amount: driverEarning, currency: payment.currency, rideId: params.rideId, paymentId: payment.id, customerId: params.customerId, driverId: params.driverId, status: 'completed', idempotencyKey: `${params.idempotencyKey}:driver_earning`, requestId: params.requestId, source: 'mishwar_demo_clearing', destination: `driver:${params.driverId}`, metadata: { simulationOnly: true } })
+    ];
+
+    const existingData = params.usePersistentStore ? await this.readPersistentFinanceData() : this.readMemoryFinanceData();
+    const existingDriverTransactions = existingData.transactions.filter((item) => item.driverId === params.driverId);
+    const existingFinance = financeSummaryFrom(params.driverId, existingDriverTransactions, existingData.payouts.filter((item) => item.driverId === params.driverId));
+    if (params.allowDebtOffset && existingFinance.outstandingCommissionDebt > 0) {
+      const offsetAmount = Math.min(driverEarning, existingFinance.outstandingCommissionDebt);
+      if (offsetAmount > 0) {
+        transactions.push(this.buildTransaction({ type: 'commission_offset', amount: offsetAmount, currency: payment.currency, rideId: params.rideId, paymentId: payment.id, customerId: params.customerId, driverId: params.driverId, status: 'completed', idempotencyKey: `${params.idempotencyKey}:commission_offset`, requestId: params.requestId, source: `driver:${params.driverId}`, destination: 'mishwar_platform', metadata: { simulationOnly: true, offsetFromDemoDigitalPayment: true } }));
+      }
+    }
+
+    const finance = financeSummaryFrom(params.driverId, [...transactions, ...existingDriverTransactions], existingData.payouts.filter((item) => item.driverId === params.driverId));
+    const response = { payment, transactions, finance };
+    if (params.usePersistentStore) {
+      const firebaseAdmin = await this.adminContext();
+      await runFirestoreTransaction(firebaseAdmin, async (tx, db) => {
+        const idemRef = db.doc(`idempotencyKeys/${idempotencyDocId('demo-digital-payment', params.user.uid, params.idempotencyKey)}`);
+        const idemSnap = await tx.get(idemRef);
+        if (idemSnap.exists) return;
+        tx.set(db.doc(`payments/${payment.id}`), { ...payment, serverCreatedAt: firestoreServerTimestamp(firebaseAdmin) });
+        transactions.forEach((entry) => tx.set(db.doc(`financialTransactions/${entry.id}`), { ...entry, serverCreatedAt: firestoreServerTimestamp(firebaseAdmin) }));
+        tx.set(idemRef, { key: params.idempotencyKey, userId: params.user.uid, scope: 'demo-digital-payment', response, createdAt: nowIso(), serverCreatedAt: firestoreServerTimestamp(firebaseAdmin) });
+        auditService.logInTransaction(tx, db, { ...params.actor, eventType: 'DEMO_DIGITAL_PAYMENT_RECORDED', targetType: 'PAYMENT', targetId: payment.id, rideId: payment.rideId, source: 'PAYMENT_BACKEND', metadata: { amount, currency: payment.currency, simulationOnly: true, offsetApplied: transactions.some((item) => item.type === 'commission_offset') } }, firestoreServerTimestamp(firebaseAdmin));
+      });
+    } else {
+      memoryPayments.set(payment.id, payment);
+      transactions.forEach((entry) => memoryTransactions.set(entry.id, entry));
+      memoryIdempotency.set(params.idempotencyKey, response);
+    }
+    return response;
+  }
+
   private requestMemoryPayout(params: { user: AuthenticatedFinanceUser; amount: number; method: PayoutMethod; idempotencyKey: string; requestId?: string }): DriverPayout {
     if (memoryIdempotency.has(params.idempotencyKey)) return memoryIdempotency.get(params.idempotencyKey) as DriverPayout;
     const finance = financeSummaryFrom(params.user.uid, [...memoryTransactions.values()].filter((item) => item.driverId === params.user.uid), [...memoryPayouts.values()].filter((item) => item.driverId === params.user.uid));
@@ -572,6 +773,51 @@ export class FinancialOperationsService {
     memoryPayouts.set(payout.id, payout);
     memoryIdempotency.set(params.idempotencyKey, payout);
     return payout;
+  }
+
+  private settleMemoryCommission(params: {
+    user: AuthenticatedFinanceUser;
+    driverId: string;
+    amount: number;
+    method: string;
+    reference?: string;
+    note?: string;
+    idempotencyKey: string;
+    requestId?: string;
+  }): { settlement: FinancialTransaction; finance: DriverFinanceSummary } {
+    const scopedKey = `commission-settlement:${params.user.uid}:${params.idempotencyKey}`;
+    if (memoryIdempotency.has(scopedKey)) {
+      return memoryIdempotency.get(scopedKey) as { settlement: FinancialTransaction; finance: DriverFinanceSummary };
+    }
+    const driverTransactions = [...memoryTransactions.values()].filter((item) => item.driverId === params.driverId);
+    const driverPayouts = [...memoryPayouts.values()].filter((item) => item.driverId === params.driverId);
+    const finance = financeSummaryFrom(params.driverId, driverTransactions, driverPayouts);
+    if (params.amount <= 0) throw new PaymentDomainError('INVALID_SETTLEMENT_AMOUNT', 'Settlement amount must be greater than zero', 400);
+    if (params.amount > finance.outstandingCommissionDebt) {
+      throw new PaymentDomainError('SETTLEMENT_EXCEEDS_DEBT', 'Settlement amount exceeds outstanding commission debt', 409);
+    }
+    const settlement = this.buildTransaction({
+      type: 'commission_settlement',
+      amount: params.amount,
+      currency: finance.currency,
+      driverId: params.driverId,
+      status: 'completed',
+      idempotencyKey: params.idempotencyKey,
+      requestId: params.requestId,
+      source: `driver:${params.driverId}`,
+      destination: 'mishwar_platform',
+      metadata: {
+        method: params.method,
+        reference: params.reference || null,
+        note: params.note || null,
+        simulationOnly: false
+      }
+    });
+    memoryTransactions.set(settlement.id, settlement);
+    const updatedFinance = financeSummaryFrom(params.driverId, [settlement, ...driverTransactions], driverPayouts);
+    const response = { settlement, finance: updatedFinance };
+    memoryIdempotency.set(scopedKey, response);
+    return response;
   }
 
   private updateMemoryPayout(payoutId: string, status: PayoutStatus, adminId: string): DriverPayout {

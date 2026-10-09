@@ -78,6 +78,82 @@ const reset = (transactions = baseTransactions, payments = [basePayment]) => {
   });
 };
 
+const cashPayment = (index: number, amount = 10000): Payment => ({
+  id: `pay_cash_${index}`,
+  rideId: `ride_cash_${index}`,
+  customerId: customer.uid,
+  driverId: driver.uid,
+  amount,
+  currency: 'YER',
+  method: 'cash',
+  status: 'paid',
+  idempotencyKey: `cash_${index}`,
+  createdAt: now,
+  updatedAt: now,
+  completedAt: now
+});
+
+const cashTransactions = (payment: Payment): FinancialTransaction[] => {
+  const commission = Math.round(payment.amount * 0.1);
+  const earning = payment.amount - commission;
+  return [
+    {
+      id: `${payment.id}_ride_payment`,
+      type: 'ride_payment',
+      amount: payment.amount,
+      currency: payment.currency,
+      rideId: payment.rideId,
+      paymentId: payment.id,
+      customerId: payment.customerId,
+      driverId: payment.driverId,
+      status: 'completed',
+      idempotencyKey: payment.idempotencyKey,
+      createdAt: now,
+      completedAt: now,
+      source: 'customer_cash',
+      destination: `driver:${payment.driverId}`
+    },
+    {
+      id: `${payment.id}_commission`,
+      type: 'platform_commission',
+      amount: commission,
+      currency: payment.currency,
+      rideId: payment.rideId,
+      paymentId: payment.id,
+      customerId: payment.customerId,
+      driverId: payment.driverId,
+      status: 'completed',
+      idempotencyKey: `${payment.idempotencyKey}:commission`,
+      createdAt: now,
+      completedAt: now,
+      source: `driver:${payment.driverId}`,
+      destination: 'mishwar_platform'
+    },
+    {
+      id: `${payment.id}_driver_earning`,
+      type: 'driver_earning',
+      amount: earning,
+      currency: payment.currency,
+      rideId: payment.rideId,
+      paymentId: payment.id,
+      customerId: payment.customerId,
+      driverId: payment.driverId,
+      status: 'completed',
+      idempotencyKey: `${payment.idempotencyKey}:driver_earning`,
+      createdAt: now,
+      completedAt: now,
+      source: 'customer_cash',
+      destination: `driver:${payment.driverId}`
+    }
+  ];
+};
+
+const resetCashRides = (count: number, amount = 10000) => {
+  const payments = Array.from({ length: count }, (_, index) => cashPayment(index + 1, amount));
+  reset(payments.flatMap(cashTransactions), payments);
+  return payments;
+};
+
 const expectError = async (code: string, action: () => Promise<unknown>) => {
   try {
     await action();
@@ -191,6 +267,79 @@ await run('settlement totals correctly', async () => {
   const settlement = await financialOperationsService.generateSettlement({ user: admin, period: 'custom', dateFrom: '1970-01-01T00:00:00.000Z', dateTo: new Date(Date.now() + 1000).toISOString(), actor, usePersistentStore: false });
   assert.equal(settlement.grossRideAmount, 10000);
   assert.equal(settlement.platformCommission, 1000);
+});
+
+await run('cash ride commission creates driver debt', async () => {
+  resetCashRides(1);
+  const finance = await financialOperationsService.getDriverFinance({ user: driver, usePersistentStore: false });
+  assert.equal(finance.totalRideGross, 10000);
+  assert.equal(finance.totalEarnings, 9000);
+  assert.equal(finance.totalPlatformCommission, 1000);
+  assert.equal(finance.outstandingCommissionDebt, 1000);
+});
+
+await run('ten cash rides accumulate commission debt', async () => {
+  resetCashRides(10);
+  const finance = await financialOperationsService.getDriverFinance({ user: driver, usePersistentStore: false });
+  assert.equal(finance.totalRideCount, 10);
+  assert.equal(finance.totalRideGross, 100000);
+  assert.equal(finance.totalPlatformCommission, 10000);
+  assert.equal(finance.outstandingCommissionDebt, 10000);
+});
+
+await run('partial commission settlement leaves remaining debt', async () => {
+  resetCashRides(10);
+  const result = await financialOperationsService.settleDriverCommission({ user: admin, driverId: driver.uid, amount: 4000, method: 'cash_office', reference: 'receipt-4000', idempotencyKey: 'settle_part_4000', actor, usePersistentStore: false });
+  assert.equal(result.settlement.type, 'commission_settlement');
+  assert.equal(result.finance.outstandingCommissionDebt, 6000);
+});
+
+await run('full commission settlement clears remaining debt', async () => {
+  resetCashRides(10);
+  await financialOperationsService.settleDriverCommission({ user: admin, driverId: driver.uid, amount: 4000, method: 'cash_office', reference: 'receipt-4000', idempotencyKey: 'settle_part_then_full_1', actor, usePersistentStore: false });
+  const result = await financialOperationsService.settleDriverCommission({ user: admin, driverId: driver.uid, amount: 6000, method: 'cash_office', reference: 'receipt-6000', idempotencyKey: 'settle_part_then_full_2', actor, usePersistentStore: false });
+  assert.equal(result.finance.outstandingCommissionDebt, 0);
+});
+
+await run('duplicate commission settlement is idempotent', async () => {
+  resetCashRides(1);
+  const first = await financialOperationsService.settleDriverCommission({ user: admin, driverId: driver.uid, amount: 1000, method: 'cash_office', idempotencyKey: 'settle_dup', actor, usePersistentStore: false });
+  const second = await financialOperationsService.settleDriverCommission({ user: admin, driverId: driver.uid, amount: 1000, method: 'cash_office', idempotencyKey: 'settle_dup', actor, usePersistentStore: false });
+  assert.equal(first.settlement.id, second.settlement.id);
+  assert.equal(second.finance.outstandingCommissionDebt, 0);
+});
+
+await run('commission settlement above debt rejected', async () => {
+  resetCashRides(1);
+  await expectError('SETTLEMENT_EXCEEDS_DEBT', () => financialOperationsService.settleDriverCommission({ user: admin, driverId: driver.uid, amount: 1001, method: 'cash_office', idempotencyKey: 'settle_too_much', actor, usePersistentStore: false }));
+});
+
+await run('two settlements cannot exceed available debt', async () => {
+  resetCashRides(1);
+  await financialOperationsService.settleDriverCommission({ user: admin, driverId: driver.uid, amount: 700, method: 'cash_office', idempotencyKey: 'settle_concurrent_a', actor, usePersistentStore: false });
+  await expectError('SETTLEMENT_EXCEEDS_DEBT', () => financialOperationsService.settleDriverCommission({ user: admin, driverId: driver.uid, amount: 400, method: 'cash_office', idempotencyKey: 'settle_concurrent_b', actor, usePersistentStore: false }));
+});
+
+await run('demo digital payment records simulated ledger only', async () => {
+  reset([]);
+  const result = await financialOperationsService.recordDemoDigitalPayment({ user: admin, driverId: driver.uid, customerId: customer.uid, rideId: 'ride_demo_digital_1', amount: 10000, idempotencyKey: 'demo_digital_1', actor, usePersistentStore: false });
+  assert.equal(result.payment.provider, 'mishwar_demo');
+  assert.equal(result.finance.totalPlatformCommission, 1000);
+  assert.ok(result.transactions.every((entry) => entry.metadata?.simulationOnly === true));
+});
+
+await run('demo digital payment offsets old cash debt partially', async () => {
+  resetCashRides(10);
+  const result = await financialOperationsService.recordDemoDigitalPayment({ user: admin, driverId: driver.uid, customerId: customer.uid, rideId: 'ride_demo_digital_offset', amount: 5000, allowDebtOffset: true, idempotencyKey: 'demo_digital_offset', actor, usePersistentStore: false });
+  assert.ok(result.transactions.some((entry) => entry.type === 'commission_offset' && entry.amount === 4500));
+  assert.equal(result.finance.outstandingCommissionDebt, 5500);
+});
+
+await run('ledger summary matches final commission account', async () => {
+  resetCashRides(10);
+  await financialOperationsService.settleDriverCommission({ user: admin, driverId: driver.uid, amount: 4000, method: 'cash_office', idempotencyKey: 'settle_ledger_match', actor, usePersistentStore: false });
+  const finance = await financialOperationsService.getDriverFinance({ user: driver, usePersistentStore: false });
+  assert.equal(finance.totalPlatformCommission - finance.totalCommissionCollected, finance.outstandingCommissionDebt);
 });
 
 await run('unauthorized admin finance access', async () => {

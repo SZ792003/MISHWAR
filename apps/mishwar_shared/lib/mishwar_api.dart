@@ -167,6 +167,25 @@ class MishwarApi {
     }
   }
 
+  Future<Response<dynamic>> _postCritical({
+    required String path,
+    required String role,
+    required Map<String, dynamic> data,
+    Map<String, String>? extraHeaders,
+  }) {
+    return _postWithOfflineQueue(
+      path: path,
+      role: role,
+      data: data,
+      extraHeaders: extraHeaders,
+      queueWhenOffline: false,
+    );
+  }
+
+  bool _isOfflineReplayAllowed(String path) {
+    return path.contains('/location') || path == '/api/devices/register';
+  }
+
   Future<int> pendingOfflineMutationsCount() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getStringList(_offlineQueueKey)?.length ?? 0;
@@ -188,6 +207,10 @@ class MishwarApi {
         final data = Map<String, dynamic>.from(item['data'] as Map);
         final extraHeaders = Map<String, String>.from(item['extraHeaders'] as Map? ?? const {});
         if (method != 'POST') continue;
+        if (!_isOfflineReplayAllowed(path)) {
+          synced += 1;
+          continue;
+        }
         await _postWithOfflineQueue(
           path: path,
           role: role,
@@ -331,7 +354,7 @@ class MishwarApi {
     required String paymentMethod,
   }) async {
     final key = 'flutter-${DateTime.now().microsecondsSinceEpoch}';
-    final response = await _postWithOfflineQueue(
+    final response = await _postCritical(
       path: '/api/rides',
       role: 'CUSTOMER',
       data: {
@@ -373,7 +396,7 @@ class MishwarApi {
             : action == 'cancel'
                 ? 'CUSTOMER'
                 : 'DRIVER');
-    final response = await _postWithOfflineQueue(
+    final response = await _postCritical(
       path: '/api/rides/$rideId/$action',
       role: role,
       data: data,
@@ -441,17 +464,16 @@ class MishwarApi {
     required String role,
     required String token,
   }) async {
-    final response = await _postWithOfflineQueue(
+    final response = await _postCritical(
       path: '/api/devices/unregister',
       role: role,
       data: {'token': token},
-      queueWhenOffline: false,
     );
     return _data(response);
   }
 
   Future<Map<String, dynamic>> completePassengerOnboarding() async {
-    final response = await _postWithOfflineQueue(
+    final response = await _postCritical(
       path: '/api/auth/passenger/complete',
       role: 'CUSTOMER',
       data: const {},
@@ -464,7 +486,7 @@ class MishwarApi {
     required String documentUrl,
     String? expiresAt,
   }) async {
-    final response = await _postWithOfflineQueue(
+    final response = await _postCritical(
       path: '/api/kyc/documents',
       role: 'DRIVER',
       data: {
@@ -481,7 +503,7 @@ class MishwarApi {
     required String paymentMethod,
   }) async {
     final key = 'pay-${rideId}-${DateTime.now().microsecondsSinceEpoch}';
-    final response = await _postWithOfflineQueue(
+    final response = await _postCritical(
       path: '/api/payments',
       role: 'CUSTOMER',
       data: {
@@ -497,7 +519,7 @@ class MishwarApi {
     required String rideId,
   }) async {
     final key = 'cash-${rideId}-${DateTime.now().microsecondsSinceEpoch}';
-    final response = await _postWithOfflineQueue(
+    final response = await _postCritical(
       path: '/api/payments/cash/confirm',
       role: 'DRIVER',
       data: {'rideId': rideId},
@@ -528,7 +550,7 @@ class MishwarApi {
     String method = 'cash_office',
   }) async {
     final key = 'payout-${DateTime.now().microsecondsSinceEpoch}';
-    final response = await _postWithOfflineQueue(
+    final response = await _postCritical(
       path: '/api/driver/payouts',
       role: 'DRIVER',
       data: {
@@ -546,7 +568,7 @@ class MishwarApi {
     String reason = 'service_issue',
   }) async {
     final key = 'refund-$paymentId-${DateTime.now().microsecondsSinceEpoch}';
-    final response = await _postWithOfflineQueue(
+    final response = await _postCritical(
       path: '/api/payments/$paymentId/refunds',
       role: 'CUSTOMER',
       data: {
@@ -566,7 +588,7 @@ class MishwarApi {
     String? rideId,
     String priority = 'medium',
   }) async {
-    final response = await _postWithOfflineQueue(
+    final response = await _postCritical(
       path: '/api/support/tickets',
       role: role,
       data: {
@@ -576,7 +598,6 @@ class MishwarApi {
         'priority': priority,
         if (rideId != null) 'rideId': rideId,
       },
-      queueWhenOffline: false,
     );
     return _data(response);
   }
@@ -586,14 +607,13 @@ class MishwarApi {
     required String type,
     String? message,
   }) async {
-    final response = await _postWithOfflineQueue(
+    final response = await _postCritical(
       path: '/api/privacy/requests',
       role: role,
       data: {
         'type': type,
         if (message != null) 'message': message,
       },
-      queueWhenOffline: false,
     );
     return _data(response);
   }
@@ -604,7 +624,7 @@ class MishwarApi {
     List<String> reasons = const [],
     String? comment,
   }) async {
-    final response = await _postWithOfflineQueue(
+    final response = await _postCritical(
       path: '/api/rides/$rideId/rating',
       role: 'CUSTOMER',
       data: {
@@ -612,7 +632,6 @@ class MishwarApi {
         'reasons': reasons,
         if (comment != null) 'comment': comment,
       },
-      queueWhenOffline: false,
     );
     return _data(response);
   }
@@ -622,14 +641,13 @@ class MishwarApi {
     required String name,
     Map<String, Object?> parameters = const {},
   }) async {
-    final response = await _postWithOfflineQueue(
+    final response = await _postCritical(
       path: '/api/analytics/events',
       role: role,
       data: {
         'name': name,
         'parameters': parameters,
       },
-      queueWhenOffline: false,
     );
     return _data(response);
   }
