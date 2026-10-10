@@ -284,6 +284,7 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
   }
 
   Future<void> _rideAction(String action) async {
+    if (_busy) return;
     final ride = _ride;
     if (ride == null) return;
     setState(() {
@@ -329,6 +330,12 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
   }
 
   Future<void> _submitBid(Map<String, dynamic> ride) async {
+    if (_bidBusy) return;
+    if (_submittedBidId != null && _submittedBidRideId == ride['id']) {
+      setState(() =>
+          _message = 'لديك عرض مرسل لهذا الطلب. اسحبه قبل إرسال عرض جديد.');
+      return;
+    }
     final amount = int.tryParse(
         _bidAmountController.text.replaceAll(RegExp(r'[^0-9]'), ''));
     if (amount == null || amount <= 0) {
@@ -360,6 +367,7 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
   }
 
   Future<void> _withdrawBid(Map<String, dynamic> ride) async {
+    if (_bidBusy) return;
     final bidId = _submittedBidId;
     if (bidId == null || _submittedBidRideId != ride['id']) {
       setState(() => _message = 'لا يوجد عرض مرسل يمكن سحبه حالياً');
@@ -717,12 +725,14 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
   List<GeoPointModel> _routePolylineFromRide(Map<String, dynamic> ride) {
     final status = ride['status'] as String?;
     if (status != 'TRIP_STARTED' &&
-        _driverRoutePreview?.polyline.isNotEmpty == true) {
+        hasUsableRoutePolyline(_driverRoutePreview?.polyline ?? const [])) {
       return _driverRoutePreview!.polyline;
     }
     final raw = ride['routePolyline'];
     if (raw is! List) return const [];
-    return raw.map(GeoPointModel.fromJson).whereType<GeoPointModel>().toList();
+    return usableRoutePoints(
+      raw.map(GeoPointModel.fromJson).whereType<GeoPointModel>().toList(),
+    );
   }
 
   Future<void> _refreshDriverRoute(Position position) async {
@@ -755,7 +765,7 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
           );
       if (mounted) {
         setState(() {
-          _driverRoutePreview = route;
+          _driverRoutePreview = hasTrustedRouteModel(route) ? route : null;
           _lastRouteRefreshAt = DateTime.now();
         });
       }
@@ -852,59 +862,62 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
       _accountPage(health: health),
     ];
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('كابتن مشوار'),
-        actions: [
-          _DriverOnlineSwitch(
-            online: _online,
-            enabled: !_busy && !isInRide,
-            onChanged: _setOnline,
-          ),
-          IconButton(
-            tooltip: 'تحديث',
-            onPressed: () {
-              _refreshRide();
-              _refreshFinance();
-            },
-            icon: const Icon(Icons.refresh),
-          ),
-          IconButton(
-            tooltip: 'الدعم',
-            onPressed: () => _createQuickSupportTicket(),
-            icon: const Icon(Icons.support_agent_outlined),
-          ),
-          IconButton(
-            tooltip: 'تسجيل الخروج',
-            onPressed: _busy ? null : _signOut,
-            icon: const Icon(Icons.logout),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: IndexedStack(index: _tabIndex, children: pages),
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tabIndex,
-        onDestinationSelected: (index) => setState(() => _tabIndex = index),
-        destinations: const [
-          NavigationDestination(
-              icon: Icon(Icons.dashboard_outlined),
-              selectedIcon: Icon(Icons.dashboard),
-              label: 'الرئيسية'),
-          NavigationDestination(
-              icon: Icon(Icons.route_outlined),
-              selectedIcon: Icon(Icons.route),
-              label: 'الرحلات'),
-          NavigationDestination(
-              icon: Icon(Icons.account_balance_wallet_outlined),
-              selectedIcon: Icon(Icons.account_balance_wallet),
-              label: 'المالية'),
-          NavigationDestination(
-              icon: Icon(Icons.person_outline),
-              selectedIcon: Icon(Icons.person),
-              label: 'حسابي'),
-        ],
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('كابتن مشوار'),
+          actions: [
+            _DriverOnlineSwitch(
+              online: _online,
+              enabled: !_busy && !isInRide,
+              onChanged: _setOnline,
+            ),
+            IconButton(
+              tooltip: 'تحديث',
+              onPressed: () {
+                _refreshRide();
+                _refreshFinance();
+              },
+              icon: const Icon(Icons.refresh),
+            ),
+            IconButton(
+              tooltip: 'الدعم',
+              onPressed: () => _createQuickSupportTicket(),
+              icon: const Icon(Icons.support_agent_outlined),
+            ),
+            IconButton(
+              tooltip: 'تسجيل الخروج',
+              onPressed: _busy ? null : _signOut,
+              icon: const Icon(Icons.logout),
+            ),
+          ],
+        ),
+        body: SafeArea(
+          child: IndexedStack(index: _tabIndex, children: pages),
+        ),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _tabIndex,
+          onDestinationSelected: (index) => setState(() => _tabIndex = index),
+          destinations: const [
+            NavigationDestination(
+                icon: Icon(Icons.dashboard_outlined),
+                selectedIcon: Icon(Icons.dashboard),
+                label: 'الرئيسية'),
+            NavigationDestination(
+                icon: Icon(Icons.route_outlined),
+                selectedIcon: Icon(Icons.route),
+                label: 'الرحلات'),
+            NavigationDestination(
+                icon: Icon(Icons.account_balance_wallet_outlined),
+                selectedIcon: Icon(Icons.account_balance_wallet),
+                label: 'المالية'),
+            NavigationDestination(
+                icon: Icon(Icons.person_outline),
+                selectedIcon: Icon(Icons.person),
+                label: 'حسابي'),
+          ],
+        ),
       ),
     );
   }
@@ -1903,6 +1916,59 @@ class _DriverFinanceCard extends StatelessWidget {
           label: 'المديونية المتبقية',
           value: _money(finance?['outstandingCommissionDebt'])),
     ];
+    if (finance == null) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.account_balance_wallet_outlined,
+                      color: Color(0xFF10B981)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                      child: Text('حسابي المالي',
+                          style: Theme.of(context).textTheme.titleMedium)),
+                  IconButton(
+                    tooltip: 'تحديث المالية',
+                    onPressed: onRefresh,
+                    icon: const Icon(Icons.refresh),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.10),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    const Icon(Icons.cloud_sync_outlined,
+                        color: Color(0xFF10B981), size: 34),
+                    const SizedBox(height: 10),
+                    Text('لم يتم تحميل البيانات المالية',
+                        style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 6),
+                    Text(
+                      'تحقق من الاتصال بالـ Backend ثم حدّث الصفحة. لا يتم عرض أرصدة افتراضية كأموال حقيقية.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -1928,25 +1994,6 @@ class _DriverFinanceCard extends StatelessWidget {
             Text('حسابي المالي', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 8),
             Wrap(spacing: 8, runSpacing: 8, children: financeChips),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _FinanceChip(
-                    label: 'متاح', value: _money(finance?['availableBalance'])),
-                _FinanceChip(
-                    label: 'معلق', value: _money(finance?['pendingBalance'])),
-                _FinanceChip(
-                    label: 'محجوز', value: _money(finance?['reservedBalance'])),
-                _FinanceChip(
-                    label: 'إجمالي الأرباح',
-                    value: _money(finance?['totalEarnings'])),
-                _FinanceChip(
-                    label: 'عمولة المنصة',
-                    value: _money(finance?['totalPlatformCommission'])),
-              ],
-            ),
             const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: busy ? null : onRequestPayout,

@@ -15,19 +15,23 @@ class MishwarBrand {
     colors: [Color(0xFF07131F), Color(0xFF0F172A), Color(0xFF0E2A2D)],
   );
 
-  static ThemeData buildTheme({required Brightness brightness, bool useDark = true}) {
+  static ThemeData buildTheme({
+    required Brightness brightness,
+    bool useDark = true,
+  }) {
     final base = colorSchemeFromBrightness(brightness, useDark: useDark);
     return ThemeData(
       useMaterial3: true,
       fontFamily: 'Cairo',
       scaffoldBackgroundColor: background,
       colorScheme: base,
+      visualDensity: VisualDensity.standard,
       cardTheme: const CardThemeData(
         color: card,
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(20)),
+          borderRadius: BorderRadius.all(Radius.circular(8)),
         ),
       ),
       appBarTheme: const AppBarTheme(
@@ -36,26 +40,84 @@ class MishwarBrand {
         elevation: 0,
         centerTitle: false,
       ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: panel,
+        indicatorColor: primary.withValues(alpha: 0.18),
+        labelTextStyle: WidgetStateProperty.resolveWith(
+          (states) => TextStyle(
+            fontSize: 12,
+            fontWeight: states.contains(WidgetState.selected)
+                ? FontWeight.w800
+                : FontWeight.w600,
+            color: states.contains(WidgetState.selected)
+                ? Colors.white
+                : Colors.white70,
+          ),
+        ),
+        iconTheme: WidgetStateProperty.resolveWith(
+          (states) => IconThemeData(
+            color: states.contains(WidgetState.selected)
+                ? primary
+                : Colors.white70,
+          ),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(48, 48),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          textStyle: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(48, 46),
+          foregroundColor: Colors.white,
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.18)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: accent,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: surfaceAlt.withValues(alpha: 0.55),
+        selectedColor: primary.withValues(alpha: 0.20),
+        labelStyle: const TextStyle(color: Colors.white),
+        secondaryLabelStyle: const TextStyle(color: Colors.white),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.10)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: panel,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: primary, width: 1.4),
         ),
       ),
     );
   }
 
-  static ColorScheme colorSchemeFromBrightness(Brightness brightness, {bool useDark = true}) {
+  static ColorScheme colorSchemeFromBrightness(
+    Brightness brightness, {
+    bool useDark = true,
+  }) {
     return ColorScheme.fromSeed(
       seedColor: primary,
       brightness: brightness,
@@ -67,7 +129,11 @@ class MishwarBrand {
 }
 
 class MishwarBrandHeader extends StatelessWidget {
-  const MishwarBrandHeader({super.key, this.subtitle, this.badgeText = 'موثوق'});
+  const MishwarBrandHeader({
+    super.key,
+    this.subtitle,
+    this.badgeText = 'موثوق',
+  });
 
   final String? subtitle;
   final String badgeText;
@@ -82,8 +148,8 @@ class MishwarBrandHeader extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: Row(
         children: [
@@ -91,10 +157,16 @@ class MishwarBrandHeader extends StatelessWidget {
             width: 52,
             height: 52,
             decoration: const BoxDecoration(
-              gradient: LinearGradient(colors: [MishwarBrand.primary, MishwarBrand.accent]),
+              gradient: LinearGradient(
+                colors: [MishwarBrand.primary, MishwarBrand.accent],
+              ),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.local_taxi_rounded, color: Colors.white, size: 26),
+            child: const Icon(
+              Icons.local_taxi_rounded,
+              color: Colors.white,
+              size: 26,
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -123,14 +195,21 @@ class MishwarBrandHeader extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: MishwarBrand.primary.withOpacity(0.14),
+              color: MishwarBrand.primary.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(999),
             ),
             child: Row(
               children: [
-                const Icon(Icons.shield_outlined, size: 14, color: MishwarBrand.accent),
+                const Icon(
+                  Icons.shield_outlined,
+                  size: 14,
+                  color: MishwarBrand.accent,
+                ),
                 const SizedBox(width: 6),
-                Text(badgeText, style: const TextStyle(color: Colors.white, fontSize: 11)),
+                Text(
+                  badgeText,
+                  style: const TextStyle(color: Colors.white, fontSize: 11),
+                ),
               ],
             ),
           )

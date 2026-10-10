@@ -371,8 +371,10 @@ class MishwarApi {
     required String paymentMethod,
     String bookingMode = 'FAST',
     int? customerProposedFare,
+    String? idempotencyKey,
   }) async {
-    final key = 'flutter-${DateTime.now().microsecondsSinceEpoch}';
+    final key =
+        idempotencyKey ?? 'flutter-${DateTime.now().microsecondsSinceEpoch}';
     final response = await _postCritical(
       path: '/api/rides',
       role: 'CUSTOMER',

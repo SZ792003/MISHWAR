@@ -1,4 +1,5 @@
 import { FareCalculation, Ride } from '../../packages/shared_types/src';
+import { financialOperationsService } from '../src/payments/financialOperationsService';
 import { paymentService } from '../src/payments/paymentService';
 
 type TestCase = {
@@ -98,10 +99,14 @@ const tests: TestCase[] = [
   {
     name: 'cash payment success',
     run: async () => {
+      financialOperationsService.seedMemoryForTests({});
       const sample = ride({ paymentMethod: 'CASH' });
       const result = await paymentService.confirmCashPayment({ user: driver, rideId: sample.id, idempotencyKey: `cash_${sample.id}`, actor, usePersistentStore: false, demoRide: sample });
       assert(result.payment.method === 'cash', 'Cash method expected');
       assert(result.payment.status === 'paid', 'Cash payment should be paid');
+      const finance = await financialOperationsService.getDriverFinance({ user: driver, usePersistentStore: false });
+      assert(finance.totalRideGross === 2000, 'Cash ride gross should appear in driver finance');
+      assert(finance.outstandingCommissionDebt === 200, 'Cash commission debt should appear in driver finance');
     }
   },
   {

@@ -9,6 +9,7 @@ import {
 import { AuditActor, auditService } from '../auditService';
 import { getFirebaseAdmin } from '../auth';
 import { backendConfig, isStrictBackend } from '../config';
+import { financialOperationsService } from './financialOperationsService';
 import { calculateCommission, subtractMoney, trustedCurrency, trustedFareAmount } from './money';
 import { PaymentDomainError } from './paymentErrors';
 import { paymentProvider, ProviderWebhookResult } from './paymentProvider';
@@ -252,6 +253,7 @@ const completePaymentInMemory = (payment: Payment, ride: Ride, userId: string, i
   const transactions = ledgerEntriesForCompletedPayment(completed, ride, idempotencyKey, requestId);
   memoryPayments.set(completed.id, completed);
   transactions.forEach((entry) => memoryFinancialTransactions.set(entry.id, entry));
+  financialOperationsService.recordMemoryPaymentLedger(completed, transactions);
   const response = { payment: completed, financialTransactions: transactions };
   memoryIdempotency.set(idempotencyKey, response);
   return response;

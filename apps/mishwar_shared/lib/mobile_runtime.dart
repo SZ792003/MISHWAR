@@ -285,22 +285,61 @@ class _PhoneOtpSignInState extends State<PhoneOtpSignIn> {
   String? _verificationId;
   String? _message;
   bool _busy = false;
+  int _resendSecondsRemaining = 0;
+  Timer? _resendTimer;
 
   @override
   void dispose() {
+    _resendTimer?.cancel();
     _phoneController.dispose();
     _codeController.dispose();
     super.dispose();
   }
 
+  String? _normalizedYemeniPhone() {
+    final raw = _phoneController.text.trim().replaceAll(RegExp(r'\s+|-'), '');
+    final local = raw.startsWith('+967')
+        ? raw.substring(4)
+        : raw.startsWith('967')
+            ? raw.substring(3)
+            : raw.startsWith('0')
+                ? raw.substring(1)
+                : raw;
+    if (!RegExp(r'^(7[01378]\d{7})$').hasMatch(local)) return null;
+    return '+967$local';
+  }
+
+  void _startResendCooldown() {
+    _resendTimer?.cancel();
+    setState(() => _resendSecondsRemaining = 60);
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_resendSecondsRemaining <= 1) {
+        timer.cancel();
+        setState(() => _resendSecondsRemaining = 0);
+      } else {
+        setState(() => _resendSecondsRemaining -= 1);
+      }
+    });
+  }
+
   Future<void> _sendCode() async {
+    final phone = _normalizedYemeniPhone();
+    if (phone == null) {
+      setState(() => _message = 'أدخل رقماً يمنياً صحيحاً يبدأ بـ +967.');
+      return;
+    }
+    if (_resendSecondsRemaining > 0) return;
     setState(() {
       _busy = true;
       _message = null;
     });
     try {
       await FirebaseAuth.instance.verifyPhoneNumber(
-        phoneNumber: _phoneController.text.trim(),
+        phoneNumber: phone,
         verificationCompleted: (credential) async {
           await FirebaseAuth.instance.signInWithCredential(credential);
         },
@@ -314,6 +353,7 @@ class _PhoneOtpSignInState extends State<PhoneOtpSignIn> {
               _verificationId = verificationId;
               _message = 'تم إرسال رمز التحقق';
             });
+            _startResendCooldown();
           }
         },
         codeAutoRetrievalTimeout: (verificationId) {
@@ -328,6 +368,10 @@ class _PhoneOtpSignInState extends State<PhoneOtpSignIn> {
   Future<void> _verifyCode() async {
     final verificationId = _verificationId;
     if (verificationId == null) return;
+    if (!RegExp(r'^\d{4,8}$').hasMatch(_codeController.text.trim())) {
+      setState(() => _message = 'أدخل رمز OTP الصحيح كما وصلك في الرسالة.');
+      return;
+    }
     setState(() {
       _busy = true;
       _message = null;

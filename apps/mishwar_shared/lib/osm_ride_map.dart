@@ -18,6 +18,7 @@ class MishwarMap extends StatefulWidget {
     this.routingEnabled = true,
     this.routePolyline = const [],
     this.followTarget = true,
+    this.loadTiles = true,
   });
 
   final double centerLatitude;
@@ -32,6 +33,7 @@ class MishwarMap extends StatefulWidget {
   final bool routingEnabled;
   final List<GeoPointModel> routePolyline;
   final bool followTarget;
+  final bool loadTiles;
 
   @override
   State<MishwarMap> createState() => _MishwarMapState();
@@ -77,19 +79,9 @@ class _MishwarMapState extends State<MishwarMap> {
   }
 
   Future<void> _loadRoute() async {
-    final pickup = _pickup;
-    final destination = _destination;
-    if (pickup == null || destination == null) {
-      if (mounted) setState(() => _routePoints = const []);
-      return;
-    }
-
-    final trustedPoints = sanitizeRoutePoints(widget.routePolyline)
+    final nextRoute = usableRoutePoints(widget.routePolyline)
         .map((point) => LatLng(point.latitude, point.longitude))
         .toList();
-    final nextRoute = trustedPoints.length > 1
-        ? trustedPoints
-        : [pickup, destination];
     if (!_sameLatLngRoute(_routePoints, nextRoute)) {
       setState(() => _routePoints = nextRoute);
     }
@@ -101,8 +93,7 @@ class _MishwarMapState extends State<MishwarMap> {
     final pickup = _pickup;
     final destination = _destination;
     final center = LatLng(widget.centerLatitude, widget.centerLongitude);
-    final target =
-        driver ??
+    final target = driver ??
         (pickup != null && destination != null
             ? LatLng(
                 (pickup.latitude + destination.latitude) / 2,
@@ -124,11 +115,11 @@ class _MishwarMapState extends State<MishwarMap> {
             (pickup.longitude + destination.longitude) / 2,
           )
         : center;
-    final hasDistinctRoute =
-        pickup != null &&
+    final hasDistinctRoute = pickup != null &&
         destination != null &&
         (pickup.latitude != destination.latitude ||
             pickup.longitude != destination.longitude);
+    final hasTrustedRoute = _routePoints.length > 1;
     final cameraPoints = [
       if (pickup != null) pickup,
       if (destination != null) destination,
@@ -179,21 +170,22 @@ class _MishwarMapState extends State<MishwarMap> {
           onTap: widget.onMapTap == null
               ? null
               : (tapPosition, point) =>
-                    widget.onMapTap!(point.latitude, point.longitude),
+                  widget.onMapTap!(point.latitude, point.longitude),
         ),
         children: [
-          TileLayer(
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            userAgentPackageName: 'com.mishwar.ride_hailing',
-            maxZoom: 19,
-            errorTileCallback: (_, __, ___) {
-              if (mounted && _tilesVisible) {
-                setState(() => _tilesVisible = false);
-              }
-            },
-          ),
-          if (!_tilesVisible) const _MapTileFallback(),
-          if (_routePoints.length > 1)
+          if (widget.loadTiles)
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'com.mishwar.ride_hailing',
+              maxZoom: 19,
+              errorTileCallback: (_, __, ___) {
+                if (mounted && _tilesVisible) {
+                  setState(() => _tilesVisible = false);
+                }
+              },
+            ),
+          if (!widget.loadTiles || !_tilesVisible) const _MapTileFallback(),
+          if (hasTrustedRoute)
             PolylineLayer(
               polylines: [
                 Polyline(
@@ -203,6 +195,8 @@ class _MishwarMapState extends State<MishwarMap> {
                 ),
               ],
             ),
+          if (!hasTrustedRoute && hasDistinctRoute)
+            const _RouteUnavailableBanner(),
           if (markers.isNotEmpty) MarkerLayer(markers: markers),
           Align(
             alignment: Alignment.topRight,
@@ -248,7 +242,6 @@ class _MishwarMapState extends State<MishwarMap> {
             alignment: AttributionAlignment.bottomRight,
             attributions: [
               TextSourceAttribution('© OpenStreetMap contributors'),
-              TextSourceAttribution('Route by MISHWAR backend'),
             ],
           ),
           Align(
@@ -259,11 +252,15 @@ class _MishwarMapState extends State<MishwarMap> {
                   color: Colors.white.withValues(alpha: 0.9),
                   borderRadius: BorderRadius.circular(4),
                 ),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                   child: Text(
-                    '© OpenStreetMap contributors · Route by MISHWAR backend',
-                    style: TextStyle(color: Color(0xFF263238), fontSize: 9),
+                    hasTrustedRoute
+                        ? '© OpenStreetMap contributors · Route by MISHWAR backend'
+                        : '© OpenStreetMap contributors',
+                    style:
+                        const TextStyle(color: Color(0xFF263238), fontSize: 9),
                   ),
                 ),
               ),
@@ -324,6 +321,60 @@ List<GeoPointModel> sanitizeRoutePoints(List<GeoPointModel> points) {
             point.longitude <= 180,
       )
       .toList(growable: false);
+}
+
+List<GeoPointModel> usableRoutePoints(List<GeoPointModel> points) {
+  final sanitized = sanitizeRoutePoints(points);
+  if (sanitized.length < 2) return const [];
+  final first = sanitized.first;
+  final hasMovement = sanitized.any(
+    (point) =>
+        point.latitude != first.latitude || point.longitude != first.longitude,
+  );
+  return hasMovement ? sanitized : const [];
+}
+
+bool hasUsableRoutePolyline(List<GeoPointModel> points) =>
+    usableRoutePoints(points).length > 1;
+
+bool hasTrustedRouteModel(RouteModel route) =>
+    !route.fallback && hasUsableRoutePolyline(route.polyline);
+
+class _RouteUnavailableBanner extends StatelessWidget {
+  const _RouteUnavailableBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 30),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: const Color(0xFF07131F).withValues(alpha: 0.88),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+          ),
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.route_outlined, size: 18, color: Color(0xFFF59E0B)),
+                SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    'المسار غير متاح حالياً',
+                    style: TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _MapTileFallback extends StatelessWidget {

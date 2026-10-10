@@ -22,37 +22,43 @@ class ProductionTask {
 const productionTasks = <ProductionTask>[
   ProductionTask(
     title: 'هوية التطبيق وتجهيز الواجهة',
-    description: 'الثيم، الكروت، وتنسيق الهوية أصبحت موحدة داخل تطبيق العميل والكابتن.',
+    description:
+        'الثيم، الكروت، وتنسيق الهوية أصبحت موحدة داخل تطبيق العميل والكابتن.',
     status: ProductionTaskStatus.ready,
     audiences: {ProductionTaskAudience.customer, ProductionTaskAudience.driver},
   ),
   ProductionTask(
     title: 'فلاتر الطلب الأساسية',
-    description: 'نوع المركبة، عدد الركاب، المكيف، وطريقة الدفع جاهزة داخل طلب المشوار.',
+    description:
+        'نوع المركبة، عدد الركاب، المكيف، وطريقة الدفع جاهزة داخل طلب المشوار.',
     status: ProductionTaskStatus.ready,
     audiences: {ProductionTaskAudience.customer},
   ),
   ProductionTask(
     title: 'تتبع موقع الكابتن المباشر',
-    description: 'إرسال الموقع من تطبيق الكابتن وعرضه للعميل مع تهدئة تحديثات GPS.',
+    description:
+        'إرسال الموقع من تطبيق الكابتن وعرضه للعميل مع تهدئة تحديثات GPS.',
     status: ProductionTaskStatus.ready,
     audiences: {ProductionTaskAudience.customer, ProductionTaskAudience.driver},
   ),
   ProductionTask(
     title: 'تدفق المشوار',
-    description: 'طلب، قبول، وصول، بدء، إنهاء، وإلغاء المشوار مربوطة بأزرار واضحة.',
+    description:
+        'طلب، قبول، وصول، بدء، إنهاء، وإلغاء المشوار مربوطة بأزرار واضحة.',
     status: ProductionTaskStatus.ready,
     audiences: {ProductionTaskAudience.customer, ProductionTaskAudience.driver},
   ),
   ProductionTask(
     title: 'المصادقة الحقيقية والحسابات',
-    description: 'تسجيل الدخول، OTP، إدارة الجلسات، وتعديل الملف الشخصي للعميل والكابتن.',
+    description:
+        'تسجيل الدخول، OTP، إدارة الجلسات، وتعديل الملف الشخصي للعميل والكابتن.',
     status: ProductionTaskStatus.ready,
     audiences: {ProductionTaskAudience.customer, ProductionTaskAudience.driver},
   ),
   ProductionTask(
     title: 'توثيق الكابتن KYC',
-    description: 'رفع ومراجعة بيانات الهوية والمركبة قبل تفعيل استقبال الطلبات.',
+    description:
+        'رفع ومراجعة بيانات الهوية والمركبة قبل تفعيل استقبال الطلبات.',
     status: ProductionTaskStatus.ready,
     audiences: {ProductionTaskAudience.driver},
   ),
@@ -64,19 +70,22 @@ const productionTasks = <ProductionTask>[
   ),
   ProductionTask(
     title: 'الإشعارات الفورية',
-    description: 'تنبيهات الطلبات، قبول أو رفض الكابتن، تحديثات الرحلة، وتنبيهات السلامة.',
+    description:
+        'تنبيهات الطلبات، قبول أو رفض الكابتن، تحديثات الرحلة، وتنبيهات السلامة.',
     status: ProductionTaskStatus.ready,
     audiences: {ProductionTaskAudience.customer, ProductionTaskAudience.driver},
   ),
   ProductionTask(
     title: 'الأمان و SOS',
-    description: 'تصعيد الطوارئ، جهات اتصال السلامة، وبلاغات الحوادث داخل الرحلة.',
+    description:
+        'تصعيد الطوارئ، جهات اتصال السلامة، وبلاغات الحوادث داخل الرحلة.',
     status: ProductionTaskStatus.next,
     audiences: {ProductionTaskAudience.customer, ProductionTaskAudience.driver},
   ),
   ProductionTask(
     title: 'تجهيز الإطلاق',
-    description: 'Firebase الإنتاج، صلاحيات المتجر، اختبارات الأجهزة، وخطة التشغيل التجريبي.',
+    description:
+        'Firebase الإنتاج، صلاحيات المتجر، اختبارات الأجهزة، وخطة التشغيل التجريبي.',
     status: ProductionTaskStatus.inProgress,
     audiences: {ProductionTaskAudience.customer, ProductionTaskAudience.driver},
   ),
@@ -103,12 +112,17 @@ class _ProductionTasksCardState extends State<ProductionTasksCard> {
   Widget build(BuildContext context) {
     final visibleTasks = productionTasks
         .where((task) => task.audiences.contains(widget.audience))
-        .where((task) => _selectedStatus == null || task.status == _selectedStatus)
+        .where(
+            (task) => _selectedStatus == null || task.status == _selectedStatus)
         .toList();
     final readyCount = productionTasks
-        .where((task) => task.audiences.contains(widget.audience) && task.status == ProductionTaskStatus.ready)
+        .where((task) =>
+            task.audiences.contains(widget.audience) &&
+            task.status == ProductionTaskStatus.ready)
         .length;
-    final totalCount = productionTasks.where((task) => task.audiences.contains(widget.audience)).length;
+    final totalCount = productionTasks
+        .where((task) => task.audiences.contains(widget.audience))
+        .length;
 
     return Card(
       child: Padding(
@@ -120,8 +134,11 @@ class _ProductionTasksCardState extends State<ProductionTasksCard> {
               children: [
                 const Icon(Icons.task_alt_rounded, color: MishwarBrand.primary),
                 const SizedBox(width: 10),
-                Expanded(child: Text(widget.title, style: Theme.of(context).textTheme.titleMedium)),
-                Text('$readyCount/$totalCount', style: Theme.of(context).textTheme.labelLarge),
+                Expanded(
+                    child: Text(widget.title,
+                        style: Theme.of(context).textTheme.titleMedium)),
+                Text('$readyCount/$totalCount',
+                    style: Theme.of(context).textTheme.labelLarge),
               ],
             ),
             const SizedBox(height: 12),
@@ -169,7 +186,7 @@ class _TaskFilterChip extends StatelessWidget {
       selected: selected,
       onSelected: (_) => onSelected(),
       showCheckmark: false,
-      selectedColor: MishwarBrand.primary.withOpacity(0.22),
+      selectedColor: MishwarBrand.primary.withValues(alpha: 0.22),
       side: BorderSide(color: selected ? MishwarBrand.primary : Colors.white24),
     );
   }
@@ -192,7 +209,7 @@ class _TaskRow extends StatelessWidget {
             width: 34,
             height: 34,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.16),
+              color: color.withValues(alpha: 0.16),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(_statusIcon(task.status), color: color, size: 18),
@@ -204,13 +221,18 @@ class _TaskRow extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Expanded(child: Text(task.title, style: const TextStyle(fontWeight: FontWeight.w700))),
+                    Expanded(
+                        child: Text(task.title,
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w700))),
                     const SizedBox(width: 8),
-                    Text(_statusLabel(task.status), style: TextStyle(color: color, fontSize: 11)),
+                    Text(_statusLabel(task.status),
+                        style: TextStyle(color: color, fontSize: 11)),
                   ],
                 ),
                 const SizedBox(height: 3),
-                Text(task.description, style: Theme.of(context).textTheme.bodySmall),
+                Text(task.description,
+                    style: Theme.of(context).textTheme.bodySmall),
               ],
             ),
           ),

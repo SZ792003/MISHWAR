@@ -172,6 +172,7 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
   int _tabIndex = 0;
   MishwarLocationUiState _locationUiState = MishwarLocationUiState.idle;
   String? _message;
+  String? _pendingRideRequestKey;
 
   @override
   void initState() {
@@ -253,9 +254,18 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
   }
 
   Future<void> _requestRide() async {
+    if (_busy) return;
     if (_pickupController.text.trim().isEmpty ||
         _destinationController.text.trim().isEmpty) {
       setState(() => _message = 'أدخل موقع الانطلاق والوجهة أولاً');
+      return;
+    }
+    final proposedFare = int.tryParse(
+      _proposedFareController.text.replaceAll(RegExp(r'[^0-9]'), ''),
+    );
+    if (_bookingMode == 'BIDDING' &&
+        (proposedFare == null || proposedFare <= 0)) {
+      setState(() => _message = 'أدخل سعراً مقترحاً صحيحاً قبل طلب العروض');
       return;
     }
     unawaited(logAnalyticsEvent(
@@ -283,10 +293,10 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
             airConditioningRequired: _airConditioningRequired,
             paymentMethod: _paymentMethod,
             bookingMode: _bookingMode,
-            customerProposedFare: _bookingMode == 'BIDDING'
-                ? int.tryParse(_proposedFareController.text
-                    .replaceAll(RegExp(r'[^0-9]'), ''))
-                : null,
+            customerProposedFare:
+                _bookingMode == 'BIDDING' ? proposedFare : null,
+            idempotencyKey: _pendingRideRequestKey ??=
+                'customer-ride-${DateTime.now().microsecondsSinceEpoch}',
           );
       if (mounted) {
         setState(() => _ride = ride);
@@ -302,7 +312,11 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
           'passenger_count': _passengerCount,
         },
       ));
+      _pendingRideRequestKey = null;
     } catch (error) {
+      if (error is DioException && error.response != null) {
+        _pendingRideRequestKey = null;
+      }
       if (mounted) setState(() => _message = _errorMessage(error));
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -329,6 +343,7 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
   }
 
   Future<void> _selectBid(Map<String, dynamic> bid) async {
+    if (_busy) return;
     final ride = _ride;
     if (ride == null) return;
     final confirmed = await showDialog<bool>(
@@ -509,7 +524,15 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
             vehicleType: _vehicleType,
           );
       if (mounted) {
-        setState(() => _routePreview = route);
+        setState(() {
+          if (hasTrustedRouteModel(route)) {
+            _routePreview = route;
+          } else {
+            _routePreview = null;
+            _message =
+                'لم تصل خدمة التوجيه بمسار حقيقي حالياً. يمكنك اختيار المواقع، وسنعرض المسافة عند توفر المسار.';
+          }
+        });
       }
     } catch (_) {
       if (mounted) {
@@ -523,8 +546,14 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
 
   List<GeoPointModel> _routePolylineFromRide(Map<String, dynamic> ride) {
     final raw = ride['routePolyline'];
-    if (raw is! List) return _routePreview?.polyline ?? const [];
-    return raw.map(GeoPointModel.fromJson).whereType<GeoPointModel>().toList();
+    if (raw is! List) {
+      return hasUsableRoutePolyline(_routePreview?.polyline ?? const [])
+          ? _routePreview!.polyline
+          : const [];
+    }
+    return usableRoutePoints(
+      raw.map(GeoPointModel.fromJson).whereType<GeoPointModel>().toList(),
+    );
   }
 
   Future<bool> _ensureFirebaseReady() async {
@@ -938,67 +967,70 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
       _ => _homeRidePage(isActiveRide),
     };
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _MishwarMark(size: 32),
-            SizedBox(width: 10),
-            Text('مشوار'),
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _MishwarMark(size: 32),
+              SizedBox(width: 10),
+              Text('مشوار'),
+            ],
+          ),
+          actions: [
+            IconButton(
+              tooltip: 'تحديث الحالة',
+              onPressed: _refreshRide,
+              icon: const Icon(Icons.refresh_rounded),
+            ),
+            IconButton(
+              tooltip: 'Support',
+              onPressed: () => _createQuickSupportTicket(),
+              icon: const Icon(Icons.support_agent_outlined),
+            ),
+            IconButton(
+              tooltip: 'About',
+              onPressed: _showAboutAndLegal,
+              icon: const Icon(Icons.info_outline),
+            ),
+            IconButton(
+              tooltip: 'تسجيل الخروج',
+              onPressed: _busy ? null : _signOut,
+              icon: const Icon(Icons.logout),
+            ),
           ],
         ),
-        actions: [
-          IconButton(
-            tooltip: 'تحديث الحالة',
-            onPressed: _refreshRide,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-          IconButton(
-            tooltip: 'Support',
-            onPressed: () => _createQuickSupportTicket(),
-            icon: const Icon(Icons.support_agent_outlined),
-          ),
-          IconButton(
-            tooltip: 'About',
-            onPressed: _showAboutAndLegal,
-            icon: const Icon(Icons.info_outline),
-          ),
-          IconButton(
-            tooltip: 'تسجيل الخروج',
-            onPressed: _busy ? null : _signOut,
-            icon: const Icon(Icons.logout),
-          ),
-        ],
-      ),
-      body: Container(
-        decoration: const BoxDecoration(gradient: MishwarBrand.gradient),
-        child: SafeArea(
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 260),
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeInCubic,
-            child: page,
+        body: Container(
+          decoration: const BoxDecoration(gradient: MishwarBrand.gradient),
+          child: SafeArea(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 260),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              child: page,
+            ),
           ),
         ),
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tabIndex,
-        onDestinationSelected: (index) => setState(() => _tabIndex = index),
-        destinations: const [
-          NavigationDestination(
-              icon: Icon(Icons.map_outlined),
-              selectedIcon: Icon(Icons.map),
-              label: 'الرئيسية'),
-          NavigationDestination(
-              icon: Icon(Icons.receipt_long_outlined),
-              selectedIcon: Icon(Icons.receipt_long),
-              label: 'الرحلات'),
-          NavigationDestination(
-              icon: Icon(Icons.person_outline),
-              selectedIcon: Icon(Icons.person),
-              label: 'حسابي'),
-        ],
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _tabIndex,
+          onDestinationSelected: (index) => setState(() => _tabIndex = index),
+          destinations: const [
+            NavigationDestination(
+                icon: Icon(Icons.map_outlined),
+                selectedIcon: Icon(Icons.map),
+                label: 'الرئيسية'),
+            NavigationDestination(
+                icon: Icon(Icons.receipt_long_outlined),
+                selectedIcon: Icon(Icons.receipt_long),
+                label: 'الرحلات'),
+            NavigationDestination(
+                icon: Icon(Icons.person_outline),
+                selectedIcon: Icon(Icons.person),
+                label: 'حسابي'),
+          ],
+        ),
       ),
     );
   }
@@ -1415,24 +1447,16 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
               ),
             ],
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: _vehicleType,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                  labelText: 'نوع المركبة', border: OutlineInputBorder()),
-              items: _vehicleOptions.entries
-                  .map((entry) => DropdownMenuItem(
-                      value: entry.key, child: Text(entry.value)))
-                  .toList(),
-              onChanged: _busy
-                  ? null
-                  : (value) => setState(() {
-                        _vehicleType = value ?? 'ECONOMY';
-                        if (_vehicleType == 'MOTORCYCLE') {
-                          _passengerCount = 1;
-                          _airConditioningRequired = false;
-                        }
-                      }),
+            _VehicleChoiceGrid(
+              selected: _vehicleType,
+              enabled: !_busy,
+              onChanged: (value) => setState(() {
+                _vehicleType = value;
+                if (_vehicleType == 'MOTORCYCLE') {
+                  _passengerCount = 1;
+                  _airConditioningRequired = false;
+                }
+              }),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<int>(
@@ -1733,6 +1757,135 @@ class _BookingModeHint extends StatelessWidget {
       ),
     );
   }
+}
+
+class _VehicleChoiceGrid extends StatelessWidget {
+  const _VehicleChoiceGrid({
+    required this.selected,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final String selected;
+  final bool enabled;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      _VehicleChoiceData(
+        value: 'ECONOMY',
+        label: _vehicleOptions['ECONOMY']!,
+        icon: Icons.directions_car_outlined,
+        subtitle: 'الأوفر لمعظم الرحلات',
+      ),
+      _VehicleChoiceData(
+        value: 'MOTORCYCLE',
+        label: _vehicleOptions['MOTORCYCLE']!,
+        icon: Icons.two_wheeler_outlined,
+        subtitle: 'راكب واحد ووصول أسرع',
+      ),
+      _VehicleChoiceData(
+        value: 'COMFORT',
+        label: _vehicleOptions['COMFORT']!,
+        icon: Icons.airline_seat_recline_normal_outlined,
+        subtitle: 'راحة أعلى ومكيف',
+      ),
+      _VehicleChoiceData(
+        value: 'FAMILY',
+        label: _vehicleOptions['FAMILY']!,
+        icon: Icons.groups_2_outlined,
+        subtitle: 'مساحة للعائلة',
+      ),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('نوع المركبة', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final twoColumns = constraints.maxWidth >= 420;
+            return GridView.count(
+              crossAxisCount: twoColumns ? 2 : 1,
+              childAspectRatio: twoColumns ? 3.1 : 4.2,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              children: items.map((item) {
+                final isSelected = item.value == selected;
+                return InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: enabled ? () => onChanged(item.value) : null,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? MishwarBrand.primary.withValues(alpha: 0.16)
+                          : Colors.white.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: isSelected
+                            ? MishwarBrand.primary
+                            : Colors.white.withValues(alpha: 0.10),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(item.icon,
+                            color: isSelected
+                                ? MishwarBrand.primary
+                                : Colors.white70),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(item.label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w800)),
+                              Text(
+                                item.subtitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (isSelected)
+                          const Icon(Icons.check_circle,
+                              color: MishwarBrand.accent),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _VehicleChoiceData {
+  const _VehicleChoiceData({
+    required this.value,
+    required this.label,
+    required this.icon,
+    required this.subtitle,
+  });
+
+  final String value;
+  final String label;
+  final IconData icon;
+  final String subtitle;
 }
 
 class _GpsStatusBanner extends StatelessWidget {

@@ -211,6 +211,15 @@ export class FinancialOperationsService {
     return [...memoryRiskFlags.values()];
   }
 
+  recordMemoryPaymentLedger(payment: Payment, transactions: FinancialTransaction[]): void {
+    memoryPayments.set(payment.id, payment);
+    for (const transaction of transactions) {
+      if (!memoryTransactions.has(transaction.id)) {
+        memoryTransactions.set(transaction.id, transaction);
+      }
+    }
+  }
+
   async getDriverFinance(params: {
     user: AuthenticatedFinanceUser;
     driverId?: string;

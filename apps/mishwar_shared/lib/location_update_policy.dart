@@ -41,14 +41,16 @@ class DriverLocationThrottlePolicy {
         LocationSharingPhase.offline => 9999,
       };
 
-  double meaningfulDistanceMeters(LocationSharingPhase phase) => switch (phase) {
+  double meaningfulDistanceMeters(LocationSharingPhase phase) =>
+      switch (phase) {
         LocationSharingPhase.activeTrip => 12,
         LocationSharingPhase.arriving => 18,
         LocationSharingPhase.onlineIdle => 75,
         LocationSharingPhase.offline => double.infinity,
       };
 
-  double maximumAcceptedAccuracyMeters(LocationSharingPhase phase) => switch (phase) {
+  double maximumAcceptedAccuracyMeters(LocationSharingPhase phase) =>
+      switch (phase) {
         LocationSharingPhase.activeTrip => 120,
         LocationSharingPhase.arriving => 150,
         LocationSharingPhase.onlineIdle => 250,
@@ -68,45 +70,61 @@ class DriverLocationThrottlePolicy {
     bool appInForeground = true,
   }) {
     if (phase == LocationSharingPhase.offline) {
-      return const LocationUploadDecision(shouldUpload: false, reason: 'driver_offline');
+      return const LocationUploadDecision(
+          shouldUpload: false, reason: 'driver_offline');
     }
 
     if (!appInForeground && phase == LocationSharingPhase.onlineIdle) {
-      return const LocationUploadDecision(shouldUpload: false, reason: 'idle_background');
+      return const LocationUploadDecision(
+          shouldUpload: false, reason: 'idle_background');
     }
 
-    if (capturedAt != null && lastUploadedAt != null && capturedAt.isBefore(lastUploadedAt)) {
-      return const LocationUploadDecision(shouldUpload: false, reason: 'out_of_order');
+    if (capturedAt != null &&
+        lastUploadedAt != null &&
+        capturedAt.isBefore(lastUploadedAt)) {
+      return const LocationUploadDecision(
+          shouldUpload: false, reason: 'out_of_order');
     }
 
     final staleInterval = maximumStaleInterval(phase);
-    final timeSinceLast = lastUploadedAt == null ? null : now.difference(lastUploadedAt);
-    final forceHeartbeat = timeSinceLast == null || timeSinceLast >= staleInterval;
+    final timeSinceLast =
+        lastUploadedAt == null ? null : now.difference(lastUploadedAt);
+    final forceHeartbeat =
+        timeSinceLast == null || timeSinceLast >= staleInterval;
 
     if (accuracyMeters != null &&
         accuracyMeters > maximumAcceptedAccuracyMeters(phase) &&
         !forceHeartbeat) {
-      return const LocationUploadDecision(shouldUpload: false, reason: 'low_accuracy');
+      return const LocationUploadDecision(
+          shouldUpload: false, reason: 'low_accuracy');
     }
 
-    if (lastUploadedAt != null && timeSinceLast != null && timeSinceLast < minimumInterval(phase)) {
-      return const LocationUploadDecision(shouldUpload: false, reason: 'minimum_interval');
+    if (lastUploadedAt != null &&
+        timeSinceLast != null &&
+        timeSinceLast < minimumInterval(phase)) {
+      return const LocationUploadDecision(
+          shouldUpload: false, reason: 'minimum_interval');
     }
 
     if (lastLatitude == null || lastLongitude == null) {
-      return const LocationUploadDecision(shouldUpload: true, reason: 'first_fix');
+      return const LocationUploadDecision(
+          shouldUpload: true, reason: 'first_fix');
     }
 
-    final distanceMeters = haversineMeters(lastLatitude, lastLongitude, latitude, longitude);
+    final distanceMeters =
+        haversineMeters(lastLatitude, lastLongitude, latitude, longitude);
     if (distanceMeters >= meaningfulDistanceMeters(phase)) {
-      return const LocationUploadDecision(shouldUpload: true, reason: 'distance');
+      return const LocationUploadDecision(
+          shouldUpload: true, reason: 'distance');
     }
 
     if (forceHeartbeat) {
-      return const LocationUploadDecision(shouldUpload: true, reason: 'heartbeat');
+      return const LocationUploadDecision(
+          shouldUpload: true, reason: 'heartbeat');
     }
 
-    return const LocationUploadDecision(shouldUpload: false, reason: 'distance_threshold');
+    return const LocationUploadDecision(
+        shouldUpload: false, reason: 'distance_threshold');
   }
 }
 
@@ -123,4 +141,3 @@ double haversineMeters(double lat1, double lon1, double lat2, double lon2) {
 }
 
 double _toRadians(double degrees) => degrees * math.pi / 180;
-
