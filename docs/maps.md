@@ -8,7 +8,7 @@ The application defines an interface `IMapService` in `src/services/mapService.t
 ## 2. Dual Provider Strategy
 1. **`MockMapService`:**
    - Active when `VITE_USE_MOCK_MAPS=true` or during local development/offline testing.
-   - Computes Great-Circle Haversine distance and synthesizes realistic urban road curvature along major Sana'a & Aden arteries (Zubairi, Hadda, Ring Road, Tahrir, Caltex).
+   - Computes Great-Circle Haversine distance and synthesizes realistic urban road curvature along major Aden & Aden arteries (Zubairi, Hadda, Ring Road, Tahrir, Caltex).
    - Zero API costs, zero external dependencies.
 2. **`GoogleMapsService`:**
    - Active in `PILOT` mode when a valid `VITE_GOOGLE_MAPS_API_KEY` is provided.

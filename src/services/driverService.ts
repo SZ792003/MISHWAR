@@ -79,7 +79,7 @@ class DriverService {
     return this.drivers
       .filter((d) => this.isDispatchEligible(d, requestedVehicleType, requiredCapacity, acRequired))
       .map((driver) => {
-        const loc = driver.currentLocation || { latitude: 15.35, longitude: 44.20, addressName: '' };
+        const loc = driver.currentLocation || { latitude: 12.7855, longitude: 45.0187, addressName: '' };
         const distanceKm = calculateDistanceKm(pickup, loc);
         const etaMinutes = estimateDurationMinutes(distanceKm, driver.vehicle?.type || requestedVehicleType);
         if (distanceKm > maxRadius) return null;
@@ -230,7 +230,7 @@ class DriverService {
         hasAC: data.vehicleType !== 'MOTORCYCLE',
         status: 'ACTIVE'
       },
-      currentLocation: { latitude: 15.35, longitude: 44.20, addressName: 'صنعاء' }
+      currentLocation: { latitude: 12.7855, longitude: 45.0187, addressName: 'عدن' }
     };
 
     this.drivers.unshift(newDriver);

@@ -31,6 +31,13 @@ class _FakeMishwarApi extends MishwarApi {
         'recentTransactions': <dynamic>[],
         'settlements': <dynamic>[],
       };
+
+  @override
+  Future<List<Map<String, dynamic>>> rideHistory(
+    String role, {
+    int limit = 20,
+  }) async =>
+      const [];
 }
 
 class _BiddingRideApi extends _FakeMishwarApi {
@@ -49,13 +56,13 @@ class _BiddingRideApi extends _FakeMishwarApi {
             .add(const Duration(minutes: 4))
             .toIso8601String(),
         'pickup': {
-          'latitude': 15.3694,
-          'longitude': 44.1910,
+          'latitude': 12.7855,
+          'longitude': 45.0187,
           'addressName': 'موقع الانطلاق',
         },
         'destination': {
-          'latitude': 15.3470,
-          'longitude': 44.2060,
+          'latitude': 12.8531,
+          'longitude': 44.9717,
           'addressName': 'الوجهة',
         },
         'fare': {'grossFare': 5400},
@@ -90,13 +97,13 @@ class _FastRideActionApi extends _FakeMishwarApi {
         'bookingMode': 'FAST',
         'customerName': 'عميل مشوار',
         'pickup': {
-          'latitude': 15.3694,
-          'longitude': 44.1910,
+          'latitude': 12.7855,
+          'longitude': 45.0187,
           'addressName': 'موقع الانطلاق',
         },
         'destination': {
-          'latitude': 15.3470,
-          'longitude': 44.2060,
+          'latitude': 12.8531,
+          'longitude': 44.9717,
           'addressName': 'الوجهة',
         },
         'fare': {'grossFare': 5400},
@@ -124,13 +131,13 @@ class _FastRideActionApi extends _FakeMishwarApi {
       'driverId': 'driver-test',
       'driverName': driverName ?? 'كابتن مشوار',
       'pickup': {
-        'latitude': 15.3694,
-        'longitude': 44.1910,
+        'latitude': 12.7855,
+        'longitude': 45.0187,
         'addressName': 'موقع الانطلاق',
       },
       'destination': {
-        'latitude': 15.3470,
-        'longitude': 44.2060,
+        'latitude': 12.8531,
+        'longitude': 44.9717,
         'addressName': 'الوجهة',
       },
       'fare': {'grossFare': 5400},

@@ -14,7 +14,7 @@
 | **Dispatch Algorithm** | In-memory candidate search with 15s timeout | **Simulator** | Server-authoritative atomic driver locking with queueing, timeouts, and sequential candidate dispatch | **P0 (Critical)** | High (Two drivers accepting the same ride simultaneously) |
 | **Ride State Machine** | Guard functions in `shared_utils` with valid transitions | **Real Logic / In-memory state** | Server-side validation on every transition, recording events in `ride_events` subcollection | **P0 (Critical)** | High (Skipping states like jumping from REQUESTED to COMPLETED) |
 | **GPS & Geolocation (Driver)** | Mock interpolated waypoints | **Simulator** | HTML5 Geolocation / Flutter `geolocator` with battery-aware interval (3-5s active, 25s idle) | **P0 (Critical)** | Medium (High battery drain or excessive Firestore write bills) |
-| **GPS & Geolocation (Customer)** | Mock Sana'a coordinates | **Simulator** | Real device GPS + Manual pin adjustment + Search autocomplete | **P1 (High)** | Low (User can fallback to manual pin) |
+| **GPS & Geolocation (Customer)** | Mock Aden coordinates | **Simulator** | Real device GPS + Manual pin adjustment + Search autocomplete | **P1 (High)** | Low (User can fallback to manual pin) |
 | **Maps & Routing** | SVG Canvas map with synthetic curved paths | **Mock SVG Map** | Create `GoogleMapsService` adapter while preserving `MockMapService` for zero-cost testing | **P1 (High)** | Medium (API quota exhaustion if not cached) |
 | **Live Driver Tracking Sync** | Direct React state sharing between phones | **Simulator** | Firestore real-time snapshot (`onSnapshot`) / WebSocket location channel | **P0 (Critical)** | High (Stale driver position shown to customer) |
 | **In-App Chat** | React context array with preset replies | **Simulator** | Firestore `rides/{rideId}/messages` subcollection with real-time listener | **P1 (High)** | Low (Users can fallback to direct phone call) |
@@ -23,7 +23,7 @@
 | **Push Notifications** | Local UI toast notifications | **Mock** | Firebase Cloud Messaging (FCM) server dispatcher for ride states | **P1 (High)** | Medium (Driver misses ride request if app backgrounded) |
 | **Cash Settlement & Fare Calculation** | Calculates Gross, 10% commission, Driver Net | **Real Formula / Local State** | Server calculates final cash collection, updates driver balance, records transaction | **P0 (Critical)** | High (Financial discrepancies if driver modifies values) |
 | **Ratings System** | Updates in-memory average and review count | **Real Formula / Local State** | Server-side transaction calculating new average and storing review in `ratings` collection | **P1 (High)** | Low |
-| **Zones & Multi-City Support** | Hardcoded Sana'a & Aden zones | **Mock** | Dynamic Firestore `cities` and `zones` collection with custom pricing multipliers | **P1 (High)** | Medium (Operating in unlicensed or unmapped areas) |
+| **Zones & Multi-City Support** | Hardcoded Aden & Aden zones | **Mock** | Dynamic Firestore `cities` and `zones` collection with custom pricing multipliers | **P1 (High)** | Medium (Operating in unlicensed or unmapped areas) |
 | **Feature Flags & Pilot Constraints** | Implicit in UI | **Missing** | Central `feature_flags` config (Max drivers: 10, Max customers: 100, Cash only, Pilot mode) | **P1 (High)** | Low |
 | **Audit Logs** | In-memory array | **Frontend Only** | Append-only Firestore collection with restricted Admin write rules | **P2 (Medium)** | Low |
 

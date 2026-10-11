@@ -5,14 +5,14 @@ import 'package:mishwar_shared/geo_models.dart';
 void main() {
   test('GeoPointModel parses valid API coordinates', () {
     final point = GeoPointModel.fromJson({
-      'latitude': 15.3694,
-      'longitude': 44.191,
+      'latitude': 12.7855,
+      'longitude': 45.0187,
     });
 
     expect(point, isNotNull);
-    expect(point!.latitude, 15.3694);
-    expect(point.longitude, 44.191);
-    expect(point.toJson(), {'latitude': 15.3694, 'longitude': 44.191});
+    expect(point!.latitude, 12.7855);
+    expect(point.longitude, 45.0187);
+    expect(point.toJson(), {'latitude': 12.7855, 'longitude': 45.0187});
   });
 
   test('route formatting handles short and long distances', () {

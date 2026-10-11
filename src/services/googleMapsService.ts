@@ -45,7 +45,7 @@ export class GoogleMapsService implements IMapService {
       }
     }
 
-    // High-precision geometric fallback for Sana'a / Aden streets
+    // High-precision geometric fallback for Aden / Aden streets
     const distanceKm = calculateDistanceKm(
       { latitude: pickup.latitude, longitude: pickup.longitude },
       { latitude: destination.latitude, longitude: destination.longitude }

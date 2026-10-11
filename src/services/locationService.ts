@@ -5,19 +5,19 @@ import { gpsService } from './gpsService';
 
 export const CITIES_DATA: City[] = [
   {
-    id: 'city_sanaa',
-    nameAr: 'صنعاء (العاصمة)',
-    nameEn: 'Sana\'a',
+    id: 'city_aden_legacy_inactive',
+    nameAr: 'عدن (العاصمة)',
+    nameEn: 'Aden Pilot Legacy',
     countryCode: 'YE',
-    center: { latitude: 15.3694, longitude: 44.1910, addressName: 'ميدان التحرير، صنعاء' },
-    isActive: true
+    center: { latitude: 12.7855, longitude: 45.0187, addressName: 'ميدان التحرير، عدن' },
+    isActive: false
   },
   {
-    id: 'city_aden',
+    id: 'city_aden_legacy_inactive',
     nameAr: 'عدن (العاصمة الاقتصادية)',
     nameEn: 'Aden',
     countryCode: 'YE',
-    center: { latitude: 12.7794, longitude: 45.0367, addressName: 'جولة كالتكس، المنصورة، عدن' },
+    center: { latitude: 12.7855, longitude: 45.0187, addressName: 'جولة كالتكس، المنصورة، عدن' },
     isActive: true
   },
   {
@@ -26,7 +26,7 @@ export const CITIES_DATA: City[] = [
     nameEn: 'Taiz',
     countryCode: 'YE',
     center: { latitude: 13.5789, longitude: 44.0178, addressName: 'جولة الحوض، تعز' },
-    isActive: true
+    isActive: false
   }
 ];
 

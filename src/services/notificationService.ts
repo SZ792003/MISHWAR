@@ -6,7 +6,7 @@ class NotificationService {
       id: 'notif_welcome',
       userId: 'cust_01',
       title: 'مرحباً بك في مشوار! 🚀',
-      message: 'أول منصة نقل ذكي متكاملة لخدمتك في شوارع صنعاء وعدن. نتمنى لك رحلات آمنة ومريحة.',
+      message: 'أول منصة نقل ذكي متكاملة لخدمتك في شوارع عدن وعدن. نتمنى لك رحلات آمنة ومريحة.',
       type: 'PROMO',
       timestamp: new Date(Date.now() - 3600000 * 24).toISOString(),
       isRead: true

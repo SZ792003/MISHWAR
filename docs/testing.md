@@ -2,7 +2,7 @@
 
 ## 1. Automated Unit Tests Run
 The unit tests verify:
-- **Haversine Distance**: Correct kilometer calculation between locations in Sana'a (Hadda, Tahrir, Sixty).
+- **Haversine Distance**: Correct kilometer calculation between locations in Aden (Hadda, Tahrir, Sixty).
 - **Pricing Formula**: Base fare + distance fare + time fare with minimum fare threshold and 10% commission.
 - **Ride State Machine**: Complete flow enforcement and invalid transition prevention.
 - **Yemeni Carriers Phone Validation**: Ensures numbers start with 77, 78, 73, 71, 70 with 9 digits.

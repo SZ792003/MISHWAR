@@ -12,7 +12,7 @@ export const BASE_VEHICLE_CATEGORIES: VehicleCategoryConfig[] = [
     type: 'MOTORCYCLE',
     nameAr: 'دراجة نارية (موتور)',
     nameEn: 'Motorcycle',
-    descriptionAr: 'الأسرع لتجاوز ازدحام شوارع صنعاء وضواحيها',
+    descriptionAr: 'الأسرع لتجاوز ازدحام شوارع عدن وضواحيها',
     capacity: 1, // Sized for 1 passenger
     baseFare: 500,
     pricePerKm: 150,

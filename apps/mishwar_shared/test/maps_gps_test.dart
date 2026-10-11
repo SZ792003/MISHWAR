@@ -22,15 +22,15 @@ void main() {
 
   test('route point sanitizer removes invalid mock locations', () {
     final points = sanitizeRoutePoints(const [
-      GeoPointModel(latitude: 15.3694, longitude: 44.191),
-      GeoPointModel(latitude: 95, longitude: 44.191),
-      GeoPointModel(latitude: 15.347, longitude: 44.206),
+      GeoPointModel(latitude: 12.7855, longitude: 45.0187),
+      GeoPointModel(latitude: 95, longitude: 45.0187),
+      GeoPointModel(latitude: 12.8531, longitude: 44.9717),
       GeoPointModel(latitude: 15.0, longitude: 200),
     ]);
 
     expect(points, hasLength(2));
-    expect(points.first.latitude, 15.3694);
-    expect(points.last.longitude, 44.206);
+    expect(points.first.latitude, 12.7855);
+    expect(points.last.longitude, 44.9717);
   });
 
   test('usable route points do not invent a straight route', () {
@@ -40,14 +40,14 @@ void main() {
     );
     expect(
       hasUsableRoutePolyline(const [
-        GeoPointModel(latitude: 15.3694, longitude: 44.191),
+        GeoPointModel(latitude: 12.7855, longitude: 45.0187),
       ]),
       isFalse,
     );
     expect(
       hasTrustedRouteModel(RouteModel(
-        origin: const GeoPointModel(latitude: 15.3694, longitude: 44.191),
-        destination: const GeoPointModel(latitude: 15.347, longitude: 44.206),
+        origin: const GeoPointModel(latitude: 12.7855, longitude: 45.0187),
+        destination: const GeoPointModel(latitude: 12.8531, longitude: 44.9717),
         distanceMeters: 1200,
         durationSeconds: 300,
         polyline: const [],
@@ -69,12 +69,12 @@ void main() {
             width: 360,
             height: 360,
             child: MishwarMap(
-              centerLatitude: 15.3694,
-              centerLongitude: 44.191,
-              pickupLatitude: 15.3694,
-              pickupLongitude: 44.191,
-              destinationLatitude: 15.347,
-              destinationLongitude: 44.206,
+              centerLatitude: 12.7855,
+              centerLongitude: 45.0187,
+              pickupLatitude: 12.7855,
+              pickupLongitude: 45.0187,
+              destinationLatitude: 12.8531,
+              destinationLongitude: 44.9717,
               routePolyline: [],
               loadTiles: false,
             ),

@@ -965,7 +965,7 @@ export const CustomerAppView: React.FC = () => {
                   </div>
                   <div>
                     <h3 className="text-sm font-bold text-slate-100">جاري البحث عن أقرب كابتن...</h3>
-                    <p className="text-xs text-slate-400 mt-1">يتم إرسال طلبك الآن للكباتن المتاحين في منطقة صنعاء</p>
+                    <p className="text-xs text-slate-400 mt-1">يتم إرسال طلبك الآن للكباتن المتاحين في منطقة عدن</p>
                   </div>
 
                   <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3 text-right space-y-1.5 text-xs">
@@ -1501,7 +1501,7 @@ export const CustomerAppView: React.FC = () => {
                 <div className="p-3">
                   <div className="font-semibold text-slate-200 mb-0.5">كيف يتم احتساب الأجرة؟</div>
                   <div className="text-[11px] text-slate-400">
-                    أجرة فتح العداد + مسافة الكيلومترات المقطوعة وفق تسعيرة مشوار المعتمدة في صنعاء.
+                    أجرة فتح العداد + مسافة الكيلومترات المقطوعة وفق تسعيرة مشوار المعتمدة في عدن.
                   </div>
                 </div>
                 <div className="p-3">
@@ -1882,7 +1882,7 @@ export const CustomerAppView: React.FC = () => {
                 </span>
               </h3>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                ابحث عن أي شارع، جولة، معلم، أو منطقة في صنعاء
+                ابحث عن أي شارع، جولة، معلم، أو منطقة في عدن
               </p>
             </div>
 

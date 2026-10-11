@@ -71,19 +71,19 @@ import { appConfig } from '../config/appConfig';
 
 export const INITIAL_CITIES: City[] = [
   {
-    id: 'city_sanaa',
-    nameAr: 'صنعاء (العاصمة)',
-    nameEn: 'Sana\'a',
+    id: 'city_aden_legacy_inactive',
+    nameAr: 'عدن (العاصمة)',
+    nameEn: 'Aden Pilot Legacy',
     countryCode: 'YE',
-    center: { latitude: 15.3694, longitude: 44.1910, addressName: 'ميدان التحرير، صنعاء' },
-    isActive: true
+    center: { latitude: 12.7855, longitude: 45.0187, addressName: 'ميدان التحرير، عدن' },
+    isActive: false
   },
   {
-    id: 'city_aden',
+    id: 'city_aden_legacy_inactive',
     nameAr: 'عدن (العاصمة الاقتصادية)',
     nameEn: 'Aden',
     countryCode: 'YE',
-    center: { latitude: 12.7794, longitude: 45.0367, addressName: 'جولة كالتكس، المنصورة، عدن' },
+    center: { latitude: 12.7855, longitude: 45.0187, addressName: 'جولة كالتكس، المنصورة، عدن' },
     isActive: true
   },
   {
@@ -118,7 +118,7 @@ export const INITIAL_PLATFORM_SETTINGS: PlatformSettings = {
     maxDrivers: 10,
     maxCustomers: 100,
     isCashOnly: true,
-    allowedCities: ['city_sanaa', 'city_aden']
+    allowedCities: ['city_aden']
   },
   operations: {
     maintenanceMode: false,
@@ -332,7 +332,9 @@ export const MishwarProvider: React.FC<{ children: ReactNode }> = ({ children })
   // Multi-City & Global Settings
   const [cities, setCities] = useState<City[]>(INITIAL_CITIES);
   const [selectedCity, setSelectedCity] = useState<City>(
-    () => INITIAL_CITIES.find((city) => city.id === persistedState.selectedCityId) || INITIAL_CITIES[0]
+    () => INITIAL_CITIES.find((city) => city.id === persistedState.selectedCityId && city.id === 'city_aden') ||
+      INITIAL_CITIES.find((city) => city.id === 'city_aden') ||
+      INITIAL_CITIES[0]
   );
   const [platformSettings, setPlatformSettings] = useState<PlatformSettings>(
     () => persistedState.platformSettings || INITIAL_PLATFORM_SETTINGS

@@ -17,7 +17,7 @@ interface InteractiveMapProps {
 }
 
 export const InteractiveMap: React.FC<InteractiveMapProps> = ({
-  center = { lat: 15.3500, lng: 44.1950 },
+  center = { lat: 12.7855, lng: 45.0187 },
   pickup,
   destination,
   driverPosition,
@@ -33,7 +33,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Coordinate projection helper: converts GPS lat/lng to SVG coordinate space [0, 800] x [0, 600]
-  // Centered around Sana'a (lat: 15.350, lng: 44.195)
+  // Centered around Aden (lat: 12.7855, lng: 45.0187)
   const project = (lat: number, lng: number) => {
     const latSpan = 0.08;
     const lngSpan = 0.08;
@@ -93,7 +93,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         <rect width="800" height="600" fill="#090d16" />
         <rect width="800" height="600" fill="url(#city-grid)" opacity="0.65" />
 
-        {/* Major Roads / Highways in Sana'a (Sixtieth Ring Rd, Zubairi, Hadda, Airport Rd) */}
+        {/* Major Roads / Highways in Aden (Sixtieth Ring Rd, Zubairi, Hadda, Airport Rd) */}
         <g stroke="#1e293b" strokeWidth="18" fill="none" strokeLinecap="round" strokeLinejoin="round">
           {/* Sixtieth Road (Ring) */}
           <path d="M 120 500 Q 180 200 420 140 T 700 220" />
@@ -135,10 +135,10 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             حديقة وميدان السبعين
           </text>
           
-          {/* Sana'a University area */}
+          {/* Aden University area */}
           <rect x="230" y="260" width="90" height="50" rx="8" fill="#1e1b4b" opacity="0.5" stroke="#4338ca" strokeWidth="1" />
           <text x="275" y="290" fill="#818cf8" fontSize="9" fontWeight="600" fontFamily="Cairo" textAnchor="middle">
-            جامعة صنعاء
+            جامعة عدن
           </text>
         </g>
 
@@ -271,7 +271,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       {/* City Badge */}
       <div className="absolute bottom-3 right-3 bg-slate-900/80 backdrop-blur-md border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-slate-300 flex items-center gap-1.5 pointer-events-none">
         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-        <span>صنعاء المركزية (Sana'a)</span>
+        <span>عدن المركزية (Aden)</span>
       </div>
     </div>
   );

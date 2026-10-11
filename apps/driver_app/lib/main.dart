@@ -14,6 +14,7 @@ import 'package:mishwar_shared/mishwar_api.dart';
 import 'package:mishwar_shared/mishwar_brand.dart';
 import 'package:mishwar_shared/mobile_runtime.dart';
 import 'package:mishwar_shared/osm_ride_map.dart';
+import 'package:mishwar_shared/pilot_city.dart';
 import 'package:mishwar_shared/production_tasks.dart';
 import 'package:mishwar_shared/ride_history.dart';
 
@@ -1092,7 +1093,9 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
         height: 230,
         child: widget.routingEnabled
             ? const MishwarMap(
-                centerLatitude: 15.3694, centerLongitude: 44.1910)
+                centerLatitude: pilotCityCenterLatitude,
+                centerLongitude: pilotCityCenterLongitude,
+              )
             : const _DriverMapPlaceholder(),
       );
     }

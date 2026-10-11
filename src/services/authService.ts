@@ -56,7 +56,7 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
   },
   {
     id: 'admin_01',
-    name: 'مدير عمليات مشوار - صنعاء',
+    name: 'مدير عمليات مشوار - عدن',
     phone: '+967 777 000 111',
     role: 'ADMIN',
     detail: 'لوحة التحكم والإشراف والأسعار'

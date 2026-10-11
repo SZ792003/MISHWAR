@@ -89,7 +89,7 @@ export const DriverAppView: React.FC = () => {
   const [regType, setRegType] = useState<VehicleType>('MOTORCYCLE');
   const [regMake, setRegMake] = useState('Haojue');
   const [regModel, setRegModel] = useState('HJ150');
-  const [regPlate, setRegPlate] = useState('صنعاء 99881/د');
+  const [regPlate, setRegPlate] = useState('عدن 99881/د');
   const [regColor, setRegColor] = useState('أسود');
   const [regStatusMessage, setRegStatusMessage] = useState<string | null>(null);
   const [driverOnboardingStep, setDriverOnboardingStep] = useState(1);
@@ -377,7 +377,7 @@ export const DriverAppView: React.FC = () => {
                       <div className="text-right">
                         <div className="leading-tight">{isOnline ? 'أنت متصل الآن' : 'أنت غير متصل'}</div>
                         <div className="text-[10px] opacity-80 font-normal">
-                          {isOnline ? 'جاهز لاستقبال طلبات مشوار في صنعاء' : 'اضغط للاتصال وبدء استقبال المشاوير'}
+                          {isOnline ? 'جاهز لاستقبال طلبات مشوار في عدن' : 'اضغط للاتصال وبدء استقبال المشاوير'}
                         </div>
                       </div>
                     </div>
@@ -976,7 +976,7 @@ export const DriverAppView: React.FC = () => {
                   <input
                     type="text"
                     required
-                    placeholder="صنعاء 12345/د"
+                    placeholder="عدن 12345/د"
                     value={regPlate}
                     onChange={(e) => setRegPlate(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-slate-100 outline-none"

@@ -46,8 +46,8 @@ const request = async <T>(
 const ridePayload = {
   customerName: 'QA Customer',
   customerPhone: '771234567',
-  pickup: { latitude: 15.3694, longitude: 44.191, addressName: 'Pickup' },
-  destination: { latitude: 15.347, longitude: 44.206, addressName: 'Destination' },
+  pickup: { latitude: 12.7855, longitude: 45.0187, addressName: 'Pickup' },
+  destination: { latitude: 12.8531, longitude: 44.9717, addressName: 'Destination' },
   vehicleType: 'ECONOMY',
   passengerCount: 1,
   airConditioningRequired: false,
@@ -120,7 +120,7 @@ const main = async (): Promise<void> => {
       method: 'POST',
       role: 'CUSTOMER',
       uid: 'qa_customer',
-      body: { latitude: 15.37, longitude: 44.2 }
+      body: { latitude: 12.79, longitude: 45.02 }
     });
     assert(customerLocationUpdate.status === 403, 'customer should not update driver location');
 

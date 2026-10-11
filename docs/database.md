@@ -113,7 +113,7 @@ interface VehicleDocument {
   model: string; // e.g., 'Yaris', 'HJ125-8E'
   year: number; // e.g., 2022
   color: string;
-  plateNumber: string; // e.g., 'صنعاء 12948/أ' or 'صنعاء 84210/د'
+  plateNumber: string; // e.g., 'عدن 12948/أ' or 'عدن 84210/د'
   capacity: number; // 1 for motorcycle, 4 for car, 7 for family XL
   isAirConditioned: boolean;
   isVerified: boolean;
@@ -338,7 +338,7 @@ Tariff configuration per city and vehicle type.
 ```typescript
 interface PricingRuleDocument {
   id: string;
-  cityId: string; // e.g., 'city_sanaa'
+  cityId: string; // e.g., 'city_aden'
   vehicleType: 'MOTORCYCLE' | 'ECONOMY' | 'COMFORT' | 'FAMILY' | 'CAR';
   baseFare: number; // in YER (e.g. 1,200 for Car, 500 for Motorcycle)
   pricePerKm: number; // in YER (e.g. 350 for Car, 150 for Motorcycle)

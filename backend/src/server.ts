@@ -387,8 +387,50 @@ let pilotConfig: PilotConfig = {
   maxDrivers: 10,
   maxCustomers: 100,
   isCashOnly: true,
-  allowedCities: ["Sana'a", 'Aden']
+  allowedCities: ['Aden']
 };
+
+const pilotServiceCenter = {
+  latitude: backendConfig.pilotCityCenterLatitude,
+  longitude: backendConfig.pilotCityCenterLongitude,
+  addressName: `${backendConfig.pilotCityName} pilot center`
+};
+
+function pilotServiceAreaDetails(point: { latitude: number; longitude: number }) {
+  const distanceKm = calculateDistanceKm(pilotServiceCenter, point);
+  return {
+    city: backendConfig.pilotCityName,
+    center: {
+      latitude: pilotServiceCenter.latitude,
+      longitude: pilotServiceCenter.longitude
+    },
+    radiusKm: backendConfig.pilotServiceRadiusKm,
+    distanceKm: Math.round(distanceKm * 100) / 100
+  };
+}
+
+function isInsidePilotServiceArea(point: { latitude: number; longitude: number }): boolean {
+  if (!backendConfig.pilotServiceAreaEnabled) return true;
+  return pilotServiceAreaDetails(point).distanceKm <= backendConfig.pilotServiceRadiusKm;
+}
+
+function rideCoverageError(pickup: { latitude: number; longitude: number }, destination: { latitude: number; longitude: number }) {
+  if (!isInsidePilotServiceArea(pickup)) {
+    return {
+      message: 'Pickup is outside the active Aden pilot service area',
+      code: 'PICKUP_OUTSIDE_SERVICE_AREA',
+      details: pilotServiceAreaDetails(pickup)
+    };
+  }
+  if (!isInsidePilotServiceArea(destination)) {
+    return {
+      message: 'Destination is outside the active Aden pilot service area',
+      code: 'DESTINATION_OUTSIDE_SERVICE_AREA',
+      details: pilotServiceAreaDetails(destination)
+    };
+  }
+  return null;
+}
 
 // CORS Middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -1204,6 +1246,13 @@ app.get('/api/config/public', (_req: Request, res: Response) => {
     supportEmail: backendConfig.supportEmail || null,
     privacyPolicyUrl: backendConfig.privacyPolicyUrl || null,
     termsUrl: backendConfig.termsUrl || null,
+    pilotCity: {
+      name: backendConfig.pilotCityName,
+      centerLatitude: backendConfig.pilotCityCenterLatitude,
+      centerLongitude: backendConfig.pilotCityCenterLongitude,
+      serviceRadiusKm: backendConfig.pilotServiceRadiusKm,
+      serviceAreaEnabled: backendConfig.pilotServiceAreaEnabled
+    },
     mode: backendConfig.nodeEnv === 'production' ? undefined : backendConfig.mode
   }, 'Public app configuration fetched');
 });
@@ -1420,7 +1469,13 @@ app.post('/api/pricing/calculate', requireApiAuth(), rateLimit(60), async (req: 
   }
 
   try {
-    const route = await geoService.route(assertGeoPointModel(pickup, 'pickup'), assertGeoPointModel(destination, 'destination'), vehicleType as VehicleType);
+    const origin = assertGeoPointModel(pickup, 'pickup');
+    const target = assertGeoPointModel(destination, 'destination');
+    const coverageError = rideCoverageError(origin, target);
+    if (coverageError) {
+      return sendError(res, 400, coverageError.message, coverageError.code, coverageError.details);
+    }
+    const route = await geoService.route(origin, target, vehicleType as VehicleType);
     const distanceKm = Math.round((route.distanceMeters / 1000) * 100) / 100;
     const durationMins = Math.max(1, Math.ceil(route.durationSeconds / 60));
     const fare = calculateFare(distanceKm, durationMins, pricingRule as PricingRule, zoneMultiplier || 1.0);
@@ -1620,6 +1675,10 @@ app.post('/api/rides', requireApiAuth('CUSTOMER'), rateLimit(20), async (req: Au
 
     const pickup = assertGeoPoint(req.body.pickup, 'pickup');
     const destination = assertGeoPoint(req.body.destination, 'destination');
+    const coverageError = rideCoverageError(pickup, destination);
+    if (coverageError) {
+      return sendError(res, 400, coverageError.message, coverageError.code, coverageError.details);
+    }
     const vehicleType = assertVehicleType(req.body.vehicleType);
     const passengerCount = assertPassengerCount(req.body.passengerCount);
     const paymentMethod = assertPaymentMethod(req.body.paymentMethod || 'CASH');
@@ -2350,6 +2409,10 @@ app.post('/api/rides/create', requireApiAuth('CUSTOMER'), rateLimit(20), async (
   try {
     trustedPickup = assertGeoPoint(pickup, 'pickup');
     trustedDestination = assertGeoPoint(destination, 'destination');
+    const coverageError = rideCoverageError(trustedPickup, trustedDestination);
+    if (coverageError) {
+      return sendError(res, 400, coverageError.message, coverageError.code, coverageError.details);
+    }
     trustedVehicleType = assertVehicleType(vehicleType);
     const pricingRule = defaultPricingRules[trustedVehicleType] || defaultPricingRules.CAR;
     route = await geoService.routeForRide(trustedPickup, trustedDestination, trustedVehicleType);

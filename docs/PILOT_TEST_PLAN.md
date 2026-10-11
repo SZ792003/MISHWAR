@@ -1,7 +1,7 @@
 # MISHWAR (مشوار) - Pilot Phase Test Plan (خطة الفحص الميداني والتشغيل التجريبي)
 
 ## 1. Executive Summary & Goals
-This document defines the comprehensive test plan for validating the **MISHWAR** ride-hailing platform before and during the initial pilot release in **Sana'a** (and secondary expansion in **Aden**).
+This document defines the comprehensive test plan for validating the **MISHWAR** ride-hailing platform before and during the initial pilot release in **Aden** (and secondary expansion in **Aden**).
 
 The pilot targets:
 - **Max 10 Verified Drivers** (Cars & Motorcycles).
@@ -79,7 +79,7 @@ The pilot targets:
 
 ## 4. Hardware & Telemetry Validation
 - **Device GPS Geolocation:** Successfully resolves physical device location with Arabic permission fallback.
-- **Driver Motion Interpolation:** Smooth route animation along polylines between Sana'a landmarks.
+- **Driver Motion Interpolation:** Smooth route animation along polylines between Aden landmarks.
 - **SOS Emergency Trigger:** Dispatches instant high-priority alert with live coordinates to Admin Ops.
 
 ---

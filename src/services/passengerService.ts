@@ -34,19 +34,19 @@ class PassengerService {
         id: 'fav_home',
         title: 'المنزل (شارع حدة)',
         icon: 'HOME',
-        location: { latitude: 15.3280, longitude: 44.1950, addressName: 'شارع حدة - بالقرب من بريد حدة' }
+        location: { latitude: 12.8200, longitude: 45.0300, addressName: 'شارع حدة - بالقرب من بريد حدة' }
       },
       {
         id: 'fav_work',
         title: 'العمل (شارع الزبيري)',
         icon: 'WORK',
-        location: { latitude: 15.3400, longitude: 44.2050, addressName: 'جولة الرويشان - شارع الزبيري' }
+        location: { latitude: 12.7890, longitude: 45.0020, addressName: 'جولة الرويشان - شارع الزبيري' }
       },
       {
         id: 'fav_univ',
-        title: 'جامعة صنعاء',
+        title: 'جامعة عدن',
         icon: 'UNIVERSITY',
-        location: { latitude: 15.3680, longitude: 44.1800, addressName: 'جامعة صنعاء - البوابة الشرقية' }
+        location: { latitude: 12.8531, longitude: 44.9717, addressName: 'جامعة عدن - البوابة الشرقية' }
       }
     ];
   }

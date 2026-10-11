@@ -17,23 +17,23 @@ const testConfig = {
 
 const run = async () => {
   resetGeoCachesForTests();
-  assert.equal(isValidCoordinate(15.3694, 44.1910), true);
-  assert.equal(isValidCoordinate(Number.NaN, 44.1910), false);
-  assert.equal(isValidCoordinate(91, 44.1910), false);
-  assert.equal(isValidCoordinate(15.3694, 181), false);
+  assert.equal(isValidCoordinate(12.7855, 45.0187), true);
+  assert.equal(isValidCoordinate(Number.NaN, 45.0187), false);
+  assert.equal(isValidCoordinate(91, 45.0187), false);
+  assert.equal(isValidCoordinate(12.7855, 181), false);
 
   assert.throws(() => assertGeoPointModel({ latitude: Infinity, longitude: 44 }, 'pickup'), ApiValidationError);
 
   const service = new GeoService(testConfig, false);
-  const search = await service.searchPlaces('حدة');
+  const search = await service.searchPlaces('عدن');
   assert.ok(search.length > 0);
   assert.equal(search[0].provider, 'internal');
   assert.deepEqual(await service.searchPlaces('x'), []);
 
-  const reverse = await service.reverseGeocode({ latitude: 15.3694, longitude: 44.1910 });
+  const reverse = await service.reverseGeocode({ latitude: 12.7855, longitude: 45.0187 });
   assert.ok(reverse.name.length > 0);
 
-  const fallbackReverse = await service.reverseGeocode({ latitude: 14.1, longitude: 44.1 });
+  const fallbackReverse = await service.reverseGeocode({ latitude: 12.7855, longitude: 45.0187 });
   assert.ok(['manual', 'internal_reverse_fallback'].includes(fallbackReverse.provider));
 
   const failedReverseService = new GeoService(
@@ -47,8 +47,8 @@ const run = async () => {
   assert.equal(manualFallback.provider, 'manual');
 
   const route = await service.route(
-    { latitude: 15.3694, longitude: 44.1910 },
-    { latitude: 15.3470, longitude: 44.2060 },
+    { latitude: 12.7855, longitude: 45.0187 },
+    { latitude: 12.8531, longitude: 44.9717 },
     'ECONOMY'
   );
   assert.ok(route.distanceMeters > 0);
@@ -56,17 +56,17 @@ const run = async () => {
   assert.ok(route.polyline.length >= 2);
   assert.equal(route.fallback, true);
   const routeAgain = await service.route(
-    { latitude: 15.3694, longitude: 44.1910 },
-    { latitude: 15.3470, longitude: 44.2060 },
+    { latitude: 12.7855, longitude: 45.0187 },
+    { latitude: 12.8531, longitude: 44.9717 },
     'ECONOMY'
   );
   assert.equal(routeAgain.calculatedAt, route.calculatedAt);
 
-  const reverseAgain = await service.reverseGeocode({ latitude: 15.3694, longitude: 44.1910 });
+  const reverseAgain = await service.reverseGeocode({ latitude: 12.7855, longitude: 45.0187 });
   assert.equal(reverseAgain.id, reverse.id);
 
   await assert.rejects(
-    () => service.route({ latitude: 15.3694, longitude: 44.1910 }, { latitude: 15.3694, longitude: 44.1910 }, 'ECONOMY'),
+    () => service.route({ latitude: 12.7855, longitude: 45.0187 }, { latitude: 12.7855, longitude: 45.0187 }, 'ECONOMY'),
     /تعذر العثور على مسار/
   );
 
@@ -79,16 +79,16 @@ const run = async () => {
         duration: 321.2,
         geometry: {
           coordinates: [
-            [44.1910, 15.3694],
-            [44.2060, 15.3470]
+            [45.0187, 12.7855],
+            [44.9717, 12.8531]
           ]
         }
       }]
     })
   );
   const osrmRoute = await osrmService.route(
-    { latitude: 15.3694, longitude: 44.1910 },
-    { latitude: 15.3470, longitude: 44.2060 },
+    { latitude: 12.7855, longitude: 45.0187 },
+    { latitude: 12.8531, longitude: 44.9717 },
     'ECONOMY'
   );
   assert.equal(osrmRoute.provider, 'osrm');
@@ -104,11 +104,11 @@ const run = async () => {
     }
   );
   await assert.rejects(
-    () => providerFailure.route({ latitude: 15.3694, longitude: 44.1910 }, { latitude: 15.3470, longitude: 44.2060 }, 'ECONOMY'),
+    () => providerFailure.route({ latitude: 12.7855, longitude: 45.0187 }, { latitude: 12.8531, longitude: 44.9717 }, 'ECONOMY'),
     /provider failed/
   );
   await assert.rejects(
-    () => providerFailure.route({ latitude: 15.3694, longitude: 44.1910 }, { latitude: 15.3470, longitude: 44.2060 }, 'ECONOMY'),
+    () => providerFailure.route({ latitude: 12.7855, longitude: 45.0187 }, { latitude: 12.8531, longitude: 44.9717 }, 'ECONOMY'),
     /backed off|provider failed|Geo provider/
   );
 
@@ -119,7 +119,7 @@ const run = async () => {
     async () => ({ routes: [] })
   );
   await assert.rejects(
-    () => noRouteService.route({ latitude: 15.3694, longitude: 44.1910 }, { latitude: 15.3470, longitude: 44.2060 }, 'ECONOMY'),
+    () => noRouteService.route({ latitude: 12.7855, longitude: 45.0187 }, { latitude: 12.8531, longitude: 44.9717 }, 'ECONOMY'),
     /تعذر العثور على مسار/
   );
 
@@ -132,14 +132,14 @@ const run = async () => {
     })
   );
   await assert.rejects(
-    () => timeoutService.route({ latitude: 15.3694, longitude: 44.1910 }, { latitude: 15.3470, longitude: 44.2060 }, 'ECONOMY'),
+    () => timeoutService.route({ latitude: 12.7855, longitude: 45.0187 }, { latitude: 12.8531, longitude: 44.9717 }, 'ECONOMY'),
     /timeout/
   );
 
   resetGeoCachesForTests();
   const strictInternalConfig = new GeoService(testConfig, true);
   await assert.rejects(
-    () => strictInternalConfig.route({ latitude: 15.3694, longitude: 44.1910 }, { latitude: 15.3470, longitude: 44.2060 }, 'ECONOMY'),
+    () => strictInternalConfig.route({ latitude: 12.7855, longitude: 45.0187 }, { latitude: 12.8531, longitude: 44.9717 }, 'ECONOMY'),
     /Production routing provider is not configured/
   );
 

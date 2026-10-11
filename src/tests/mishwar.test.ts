@@ -97,8 +97,8 @@ export async function runUnitTests(failedOnly: boolean = false, previousResults?
 
   // 1. Scenario A: Passenger + Car
   await runTest('Scenario A: Passenger + Car (Full Lifecycle)', 'SCENARIO', async () => {
-    const pickup = { latitude: 15.3556, longitude: 44.2075, addressName: 'ميدان التحرير' };
-    const dest = { latitude: 15.3280, longitude: 44.1950, addressName: 'شارع حدة' };
+    const pickup = { latitude: 12.7797, longitude: 45.0367, addressName: 'ميدان التحرير' };
+    const dest = { latitude: 12.8200, longitude: 45.0300, addressName: 'شارع حدة' };
     const fare = pricingService.calculateEstimate(pickup, dest, 'CAR');
     const driver = driverService.findNearestAvailableDriver(pickup, 'CAR');
 
@@ -119,8 +119,8 @@ export async function runUnitTests(failedOnly: boolean = false, previousResults?
 
   // 2. Scenario B: Passenger + Motorcycle
   await runTest('Scenario B: Passenger + Motorcycle (Formula & Min Fare)', 'SCENARIO', async () => {
-    const pickup = { latitude: 15.3556, longitude: 44.2075, addressName: 'ميدان التحرير' };
-    const dest = { latitude: 15.3680, longitude: 44.1800, addressName: 'جامعة صنعاء' };
+    const pickup = { latitude: 12.7797, longitude: 45.0367, addressName: 'ميدان التحرير' };
+    const dest = { latitude: 12.8531, longitude: 44.9717, addressName: 'جامعة عدن' };
     const fare = pricingService.calculateEstimate(pickup, dest, 'MOTORCYCLE');
     const driver = driverService.findNearestAvailableDriver(pickup, 'MOTORCYCLE');
 
@@ -138,7 +138,7 @@ export async function runUnitTests(failedOnly: boolean = false, previousResults?
 
   // 3. Scenario C: No Driver Available
   await runTest('Scenario C: No Driver Available (Graceful Degradation)', 'SCENARIO', async () => {
-    // Pick far coordinates outside Sanaa service area
+    // Pick far coordinates outside Aden service area
     const desertLocation = { latitude: 16.5000, longitude: 45.9000, addressName: 'صحراء الجوف' };
     // Temporarily verify null handling
     const result = driverService.findNearestAvailableDriver(desertLocation, 'FAMILY');
@@ -254,7 +254,7 @@ export async function runUnitTests(failedOnly: boolean = false, previousResults?
       driverService.updateDriverStatus(onlineDriver.id, 'IN_RIDE');
     }
 
-    const pickup = { latitude: 15.3556, longitude: 44.2075, addressName: 'ميدان التحرير' };
+    const pickup = { latitude: 12.7797, longitude: 45.0367, addressName: 'ميدان التحرير' };
     const assigned = driverService.findNearestAvailableDriver(pickup, 'ECONOMY');
 
     const passed = assigned?.id !== onlineDriver?.id && assigned?.driverStatus === 'ONLINE';
@@ -351,8 +351,8 @@ export async function runUnitTests(failedOnly: boolean = false, previousResults?
   await runTest('Geo Engine: Haversine Distance Calculation (Sana\'a)', 'GEO', async () => {
     // Hadda Post Office to Tahrir Square
     const dist = calculateDistanceKm(
-      { latitude: 15.3280, longitude: 44.1950 },
-      { latitude: 15.3556, longitude: 44.2075 }
+      { latitude: 12.8200, longitude: 45.0300 },
+      { latitude: 12.7797, longitude: 45.0367 }
     );
     const passed = dist >= 3.0 && dist <= 3.8;
     return {
@@ -447,7 +447,7 @@ export async function runUnitTests(failedOnly: boolean = false, previousResults?
     const suspended = drivers.find((d) => d.driverStatus === 'SUSPENDED');
     const pending = drivers.find((d) => d.driverStatus === 'PENDING_APPROVAL');
 
-    const pickup = { latitude: 15.3556, longitude: 44.2075, addressName: 'ميدان التحرير' };
+    const pickup = { latitude: 12.7797, longitude: 45.0367, addressName: 'ميدان التحرير' };
     const candidate = driverService.findNearestAvailableDriver(pickup, 'ECONOMY');
 
     const passed = candidate?.id !== suspended?.id && candidate?.id !== pending?.id && candidate?.driverStatus === 'ONLINE';
@@ -569,7 +569,7 @@ export async function runUnitTests(failedOnly: boolean = false, previousResults?
       id: 'audit_test_01',
       actor: { id: 'admin_sys', role: 'ADMIN' as const, emailOrPhone: 'admin@mishwar.ye' },
       action: 'UPDATE_PRICING_RULE',
-      target: { type: 'PRICING' as const, id: 'rule_car_sanaa' },
+      target: { type: 'PRICING' as const, id: 'rule_car_aden' },
       timestamp: new Date().toISOString(),
       metadata: { newMinFare: 1800 }
     };
@@ -595,7 +595,7 @@ export async function runUnitTests(failedOnly: boolean = false, previousResults?
 
   // 23. Dispatch: Vehicle Capacity & Passenger Count Validation
   await runTest('Dispatch: Vehicle Capacity & Passenger Count Enforcement', 'DISPATCH', async () => {
-    const pickup = { latitude: 15.3556, longitude: 44.2075, addressName: 'ميدان التحرير' };
+    const pickup = { latitude: 12.7797, longitude: 45.0367, addressName: 'ميدان التحرير' };
 
     // Request 5 passengers: Economy (cap: 4) and Motorcycle (cap: 1) must be rejected, Family (cap: 6) accepted
     const motoDriver = driverService.findNearestAvailableDriver(pickup, 'MOTORCYCLE', { passengerCount: 2 });
@@ -612,7 +612,7 @@ export async function runUnitTests(failedOnly: boolean = false, previousResults?
 
   // 24. Dispatch: Air Conditioning Filter & Requirement Validation
   await runTest('Dispatch: Air Conditioning (AC) Enforcement', 'DISPATCH', async () => {
-    const pickup = { latitude: 15.3556, longitude: 44.2075, addressName: 'ميدان التحرير' };
+    const pickup = { latitude: 12.7797, longitude: 45.0367, addressName: 'ميدان التحرير' };
 
     // When AC is requested, no vehicle without AC may be dispatched
     const acDriver = driverService.findNearestAvailableDriver(pickup, 'CAR', {
@@ -639,8 +639,8 @@ export async function runUnitTests(failedOnly: boolean = false, previousResults?
       customerPhone: '+967 771 234 567',
       customerRating: 4.9,
       driverId: 'driver_car_01',
-      pickup: { latitude: 15.35, longitude: 44.20, addressName: 'التحرير' },
-      destination: { latitude: 15.32, longitude: 44.19, addressName: 'حدة' },
+      pickup: { latitude: 12.7855, longitude: 45.0187, addressName: 'التحرير' },
+      destination: { latitude: 12.8531, longitude: 44.9717, addressName: 'حدة' },
       vehicleType: 'ECONOMY',
       passengerCount: 3,
       airConditioningRequired: true,
@@ -765,7 +765,7 @@ export async function runUnitTests(failedOnly: boolean = false, previousResults?
   });
 
   await runTest('Dispatch: Reverification Driver Cannot Be Matched', 'DISPATCH', async () => {
-    const pickup = { latitude: 15.3556, longitude: 44.2075, addressName: 'ميدان التحرير' };
+    const pickup = { latitude: 12.7797, longitude: 45.0367, addressName: 'ميدان التحرير' };
     const blockedDriver = driverService.getAllDrivers()[0];
     driverService.updateDriverStatus(blockedDriver.id, 'ONLINE');
     const mutableDriver = driverService.getDriverById(blockedDriver.id);

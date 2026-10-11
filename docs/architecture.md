@@ -1,7 +1,7 @@
 # MISHWAR (مشوار) - Architecture Overview
 
 ## 1. Executive Summary
-**MISHWAR (مشوار)** is a modern, high-performance, modular smart ride-hailing and logistics platform engineered specifically for the Yemeni market. It supports motorcycles and cars with future architecture for deliveries, corporate fleets, and inter-city transit (Sana'a, Aden, Taiz, Hodeidah, Mukalla).
+**MISHWAR (مشوار)** is a modern, high-performance, modular smart ride-hailing and logistics platform engineered specifically for the Yemeni market. It supports motorcycles and cars with future architecture for deliveries, corporate fleets, and inter-city transit (Aden, Aden, Taiz, Hodeidah, Mukalla).
 
 ## 2. Monorepo Structure
 ```

@@ -22,7 +22,7 @@ export class MockMapService implements IMapService {
       { latitude: destination.latitude, longitude: destination.longitude }
     );
     
-    // Average urban speed in Sana'a (~22 km/h)
+    // Average urban speed in Aden (~22 km/h)
     const durationMins = Math.max(3, Math.round((distanceKm / 22) * 60));
 
     // Generate intermediate waypoints to simulate road curves

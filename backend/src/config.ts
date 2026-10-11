@@ -66,6 +66,11 @@ export const backendConfig = {
   geoCountryBias: process.env.GEO_COUNTRY_BIAS || 'YE',
   geoRequestTimeoutMs: Number(process.env.GEO_REQUEST_TIMEOUT_MS || 3500)
   ,
+  pilotCityName: process.env.PILOT_CITY_NAME || 'Aden',
+  pilotCityCenterLatitude: Number(process.env.PILOT_CITY_CENTER_LATITUDE || 12.7855),
+  pilotCityCenterLongitude: Number(process.env.PILOT_CITY_CENTER_LONGITUDE || 45.0187),
+  pilotServiceRadiusKm: Number(process.env.PILOT_SERVICE_RADIUS_KM || 35),
+  pilotServiceAreaEnabled: toBool(process.env.PILOT_SERVICE_AREA_ENABLED, true),
   supportUrl: process.env.SUPPORT_URL || '',
   supportEmail: process.env.SUPPORT_EMAIL || '',
   privacyPolicyUrl: process.env.PRIVACY_POLICY_URL || '',

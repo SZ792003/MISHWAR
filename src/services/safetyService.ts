@@ -27,8 +27,8 @@ class SafetyService {
       ];
     }
     return [
-      { labelAr: 'شرطة صنعاء', phone: '199' },
-      { labelAr: 'إسعاف صنعاء', phone: '191' },
+      { labelAr: 'شرطة عدن', phone: '199' },
+      { labelAr: 'إسعاف عدن', phone: '191' },
       { labelAr: 'دعم مشوار', phone: '+967 1 400 000' }
     ];
   }

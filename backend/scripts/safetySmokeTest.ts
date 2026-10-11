@@ -54,8 +54,8 @@ const main = async (): Promise<void> => {
       body: {
         customerName: 'Smoke Customer',
         customerPhone: '771234567',
-        pickup: { latitude: 15.3694, longitude: 44.191, addressName: 'Pickup' },
-        destination: { latitude: 15.347, longitude: 44.206, addressName: 'Destination' },
+        pickup: { latitude: 12.7855, longitude: 45.0187, addressName: 'Pickup' },
+        destination: { latitude: 12.8531, longitude: 44.9717, addressName: 'Destination' },
         vehicleType: 'ECONOMY',
         passengerCount: 1,
         airConditioningRequired: false,

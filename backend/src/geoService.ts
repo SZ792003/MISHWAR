@@ -26,11 +26,13 @@ const reverseCacheTtlMs = 12 * 60 * 60 * 1000;
 const gridPrecision = 3;
 
 const yemenPlaces: PlaceResult[] = [
-  { id: 'ye_sanaa_tahrir', name: 'ميدان التحرير', address: 'صنعاء، اليمن', latitude: 15.3694, longitude: 44.1910, provider: 'internal', type: 'landmark' },
-  { id: 'ye_sanaa_hadda', name: 'شارع حدة', address: 'صنعاء، اليمن', latitude: 15.3470, longitude: 44.2060, provider: 'internal', type: 'street' },
-  { id: 'ye_sanaa_ring', name: 'شارع الستين', address: 'صنعاء، اليمن', latitude: 15.3557, longitude: 44.1706, provider: 'internal', type: 'street' },
+  { id: 'ye_aden_pilot_center', name: 'مركز عدن التجريبي', address: 'عدن، اليمن', latitude: 12.7855, longitude: 45.0187, provider: 'internal', type: 'landmark' },
   { id: 'ye_aden_crater', name: 'كريتر', address: 'عدن، اليمن', latitude: 12.7797, longitude: 45.0367, provider: 'internal', type: 'district' },
-  { id: 'ye_aden_mansoura', name: 'المنصورة', address: 'عدن، اليمن', latitude: 12.8531, longitude: 44.9717, provider: 'internal', type: 'district' }
+  { id: 'ye_aden_mansoura', name: 'المنصورة', address: 'عدن، اليمن', latitude: 12.8531, longitude: 44.9717, provider: 'internal', type: 'district' },
+  { id: 'ye_aden_khormaksar', name: 'خور مكسر', address: 'عدن، اليمن', latitude: 12.8100, longitude: 45.0330, provider: 'internal', type: 'district' },
+  { id: 'ye_aden_mualla', name: 'المعلا', address: 'عدن، اليمن', latitude: 12.7890, longitude: 45.0020, provider: 'internal', type: 'district' },
+  { id: 'ye_aden_tawahi', name: 'التواهي', address: 'عدن، اليمن', latitude: 12.7840, longitude: 44.9800, provider: 'internal', type: 'district' },
+  { id: 'ye_aden_buraiqa', name: 'البريقة', address: 'عدن، اليمن', latitude: 12.8260, longitude: 44.8750, provider: 'internal', type: 'district' }
 ];
 
 export const isValidCoordinate = (latitude: number, longitude: number): boolean => {

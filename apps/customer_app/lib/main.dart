@@ -13,6 +13,7 @@ import 'package:mishwar_shared/mishwar_api.dart';
 import 'package:mishwar_shared/mishwar_brand.dart';
 import 'package:mishwar_shared/mobile_runtime.dart';
 import 'package:mishwar_shared/osm_ride_map.dart';
+import 'package:mishwar_shared/pilot_city.dart';
 import 'package:mishwar_shared/production_tasks.dart';
 
 final apiProvider = Provider<MishwarApi>(
@@ -139,13 +140,14 @@ class CustomerHomeScreen extends ConsumerStatefulWidget {
 
 class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
     with WidgetsBindingObserver {
-  final _pickupController = TextEditingController(text: 'ميدان التحرير');
-  final _destinationController = TextEditingController(text: 'شارع حدة');
+  final _pickupController = TextEditingController(text: pilotDefaultPickupName);
+  final _destinationController =
+      TextEditingController(text: pilotDefaultDestinationName);
   final _proposedFareController = TextEditingController(text: '5000');
-  double _pickupLatitude = 15.3694;
-  double _pickupLongitude = 44.1910;
-  double _destinationLatitude = 15.3470;
-  double _destinationLongitude = 44.2060;
+  double _pickupLatitude = pilotDefaultPickupLatitude;
+  double _pickupLongitude = pilotDefaultPickupLongitude;
+  double _destinationLatitude = pilotDefaultDestinationLatitude;
+  double _destinationLongitude = pilotDefaultDestinationLongitude;
   String _mapSelection = 'pickup';
   Timer? _pollTimer;
   Timer? _searchDebounce;
@@ -1621,6 +1623,7 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
                     : null,
                 routePolyline: _routePolylineFromRide(ride),
                 routingEnabled: widget.routingEnabled,
+                loadTiles: widget.routingEnabled,
                 followTarget: showDriverLocation,
               ),
             ),
