@@ -15,6 +15,7 @@ import 'package:mishwar_shared/mishwar_brand.dart';
 import 'package:mishwar_shared/mobile_runtime.dart';
 import 'package:mishwar_shared/osm_ride_map.dart';
 import 'package:mishwar_shared/production_tasks.dart';
+import 'package:mishwar_shared/ride_history.dart';
 
 final apiProvider = Provider<MishwarApi>(
     (ref) => MishwarApi(firebaseIdTokenProvider: firebaseIdToken));
@@ -1004,21 +1005,16 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
         const _DriverSectionHeader(
           icon: Icons.route_outlined,
           title: 'سجل الرحلات',
-          subtitle: 'آخر حالة تشغيلية متاحة من Backend المحلي',
+          subtitle: 'الرحلة الحالية ورحلاتك السابقة',
         ),
         const SizedBox(height: 12),
-        if (_ride == null)
-          const _InfoCard(
-            icon: Icons.history_outlined,
-            title: 'لا توجد رحلة نشطة',
-            message:
-                'سيظهر هنا ملخص الرحلة الحالية وتفاصيل الفاتورة عند توفرها.',
-          )
-        else ...[
+        if (_ride != null) ...[
           _DriverTripReceiptCard(ride: _ride!),
           const SizedBox(height: 12),
           _rideCard(_ride!, incoming: isIncoming),
+          const SizedBox(height: 16),
         ],
+        RideHistoryList(api: ref.read(apiProvider), role: 'DRIVER'),
         const SizedBox(height: 12),
         OfflineSyncCard(api: ref.read(apiProvider)),
       ],

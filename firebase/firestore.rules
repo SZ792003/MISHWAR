@@ -11,10 +11,6 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
     
-    function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-    }
-
     function hasTrustedRole(roles) {
       return isAuthenticated() && request.auth.token.role in roles;
     }
@@ -42,28 +38,6 @@ service cloud.firestore {
         get(/databases/$(database)/documents/rides/$(rideId)).data.driverId == request.auth.uid ||
         isAdmin()
       );
-    }
-
-    function protectedRideFinancialKeys() {
-      return [
-        'paymentId',
-        'paymentStatus',
-        'paymentProvider',
-        'providerPaymentId',
-        'walletTransactionId',
-        'refundId',
-        'refundStatus',
-        'driverEarnings',
-        'platformCommission',
-        'settlementId'
-      ];
-    }
-
-    function safeRideClientCreate() {
-      return isAuthenticated() &&
-        request.resource.data.customerId == request.auth.uid &&
-        !request.resource.data.keys().hasAny(protectedRideFinancialKeys()) &&
-        !request.resource.data.keys().hasAny(['driverId', 'assignedAt', 'completedAt']);
     }
 
     function isTrackableRideStatus(status) {
@@ -281,57 +255,16 @@ service cloud.firestore {
     }
 
     // Rides Collection
+    // Ride creation and every lifecycle change (accept, arrive, start, complete, cancel) goes
+    // through the backend API, which enforces the state machine, KYC, busy-driver and dispatch
+    // checks and writes with the Admin SDK. Clients only read rides they take part in.
     match /rides/{rideId} {
       allow read: if isAuthenticated() && (
         resource.data.customerId == request.auth.uid ||
         resource.data.driverId == request.auth.uid ||
         isAdmin()
       );
-      allow create: if safeRideClientCreate();
-      allow update: if isAuthenticated() && (
-        (
-          resource.data.customerId == request.auth.uid &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status',
-            'cancellationReason',
-            'cancelledByRole',
-            'cancelledAt',
-            'updatedAt'
-          ]) &&
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny(protectedRideFinancialKeys())
-        ) ||
-        (
-          resource.data.driverId == request.auth.uid &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status',
-            'arrivedAt',
-            'startedAt',
-            'completedAt',
-            'actualDistanceKm',
-            'actualDurationMins',
-            'updatedAt'
-          ]) &&
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny(protectedRideFinancialKeys())
-        ) ||
-        (
-          resource.data.driverId == null &&
-          isDriver() &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'driverId',
-            'driverName',
-            'driverPhone',
-            'driverRating',
-            'driverAvatar',
-            'vehicle',
-            'status',
-            'assignedAt',
-            'updatedAt'
-          ]) &&
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny(protectedRideFinancialKeys())
-        ) ||
-        isAdmin()
-      );
-      allow delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
     // Ride Events Collection
@@ -352,20 +285,8 @@ service cloud.firestore {
         resource.data.driverId == request.auth.uid ||
         isAdmin()
       );
-      allow create: if isAdmin();
-      allow update: if isAuthenticated() && (
-        (
-          resource.data.driverId == request.auth.uid &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status',
-            'acceptedAt',
-            'rejectedAt',
-            'cancelledAt'
-          ])
-        ) ||
-        isAdmin()
-      );
-      allow delete: if isAdmin();
+      // Drivers accept/decline offers through the backend API, never by writing here.
+      allow create, update, delete: if isAdmin();
     }
 
     match /rideBids/{bidId} {

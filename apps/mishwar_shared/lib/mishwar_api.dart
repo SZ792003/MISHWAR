@@ -253,6 +253,18 @@ class MishwarApi {
     return _data(response);
   }
 
+  /// Rides the signed-in user booked (CUSTOMER) or drove (DRIVER), newest first.
+  Future<List<Map<String, dynamic>>> rideHistory(String role, {int limit = 20}) async {
+    final response = await _dio.get(
+      '/api/rides/history',
+      queryParameters: {'limit': limit},
+      options: Options(headers: await _headers(role)),
+    );
+    final data = response.data['data'];
+    if (data is! List) return const [];
+    return data.whereType<Map>().map((ride) => Map<String, dynamic>.from(ride)).toList();
+  }
+
   Future<Map<String, dynamic>?> activeRide(String role) async {
     final response = await _dio.get(
       '/api/rides/active',

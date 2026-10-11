@@ -50,6 +50,7 @@ type FirebaseCollectionReferenceLike = {
 type FirebaseFirestoreLike = {
   doc: (path: string) => FirebaseDocumentReferenceLike;
   collection: (path: string) => FirebaseCollectionReferenceLike;
+  settings: (settings: { ignoreUndefinedProperties?: boolean }) => void;
 };
 
 let firebaseAdminModule: FirebaseAdminModule | null | undefined;
@@ -98,6 +99,10 @@ export const getFirebaseAdmin = async (): Promise<{ admin: FirebaseAdminModule; 
   }
 
   const app = admin.initializeApp(appOptions);
+  // Ride/payment records carry optional fields (scheduledAt, driverId, ...) that are often
+  // undefined. The in-memory store accepts them, but Firestore rejects the whole write unless
+  // undefined fields are skipped. settings() must run once, before the first Firestore call.
+  admin.firestore(app).settings({ ignoreUndefinedProperties: true });
   return { admin, app };
 };
 
