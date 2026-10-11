@@ -1,0 +1,12 @@
+# Cloud Build upload for the backend image: only backend/ and packages/ are sent.
+# Secrets (.env, service-account keys, signing keys) must never be uploaded.
+/*
+!/backend/
+!/packages/
+backend/node_modules/
+backend/dist-build/
+backend/.env
+backend/.env.*
+**/*.json.key
+**/*service-account*.json
+**/node_modules/

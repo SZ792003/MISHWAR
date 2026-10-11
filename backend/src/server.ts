@@ -1728,6 +1728,27 @@ app.get('/api/rides/active', requireApiAuth(), rateLimit(120), async (req: Authe
   return sendSuccess(res, ride, 'Latest ride fetched');
 });
 
+// Ride history for the signed-in user: rides they booked (customer) or drove (driver), newest first.
+// Registered before /api/rides/:id so "history" is not treated as a ride id.
+app.get('/api/rides/history', requireApiAuth(), rateLimit(60), async (req: AuthenticatedRequest, res: Response) => {
+  const role = req.user!.role === 'DRIVER' ? 'DRIVER' : 'CUSTOMER';
+  const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
+  if (usePersistentStore(req)) {
+    try {
+      const rides = await firestoreRideRepository.listRidesForUser(req.user!.uid, role, limit);
+      return sendSuccess(res, rides, 'Ride history fetched');
+    } catch (error) {
+      return sendPersistenceError(res, error);
+    }
+  }
+
+  const rides = Array.from(ridesStore.values())
+    .filter((ride) => role === 'DRIVER' ? ride.driverId === req.user!.uid : ride.customerId === req.user!.uid)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, limit);
+  return sendSuccess(res, rides, 'Ride history fetched');
+});
+
 app.get('/api/rides/:id', requireApiAuth(), rateLimit(60), async (req: AuthenticatedRequest, res: Response) => {
   if (usePersistentStore(req)) {
     try {

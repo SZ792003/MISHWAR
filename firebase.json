@@ -6,6 +6,10 @@
   "storage": {
     "rules": "firebase/storage.rules"
   },
+  "hosting": {
+    "public": "hosting/public",
+    "cleanUrls": true
+  },
   "emulators": {
     "auth": {
       "port": 9099

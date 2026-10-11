@@ -14,6 +14,7 @@ import 'package:mishwar_shared/mishwar_brand.dart';
 import 'package:mishwar_shared/mobile_runtime.dart';
 import 'package:mishwar_shared/osm_ride_map.dart';
 import 'package:mishwar_shared/production_tasks.dart';
+import 'package:mishwar_shared/ride_history.dart';
 
 final apiProvider = Provider<MishwarApi>(
     (ref) => MishwarApi(firebaseIdTokenProvider: firebaseIdToken));
@@ -155,6 +156,7 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
   String? _subscribedDriverId;
   String? _subscribedRideId;
   Map<String, dynamic>? _ride;
+  Map<String, dynamic>? _historyRide; // past trip opened from the history list
   RouteModel? _routePreview;
   List<PlaceModel> _placeResults = const [];
   String _vehicleType = 'ECONOMY';
@@ -954,21 +956,6 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
             onPressed: _refreshRide,
             icon: const Icon(Icons.refresh_rounded),
           ),
-          IconButton(
-            tooltip: 'Support',
-            onPressed: () => _createQuickSupportTicket(),
-            icon: const Icon(Icons.support_agent_outlined),
-          ),
-          IconButton(
-            tooltip: 'About',
-            onPressed: _showAboutAndLegal,
-            icon: const Icon(Icons.info_outline),
-          ),
-          IconButton(
-            tooltip: 'تسجيل الخروج',
-            onPressed: _busy ? null : _signOut,
-            icon: const Icon(Icons.logout),
-          ),
         ],
       ),
       body: Container(
@@ -1004,35 +991,69 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
   }
 
   Widget _homeRidePage(bool isActiveRide) {
+    List<Widget> panelChildren() => [
+          _panelHeader(isActiveRide),
+          const SizedBox(height: 12),
+          _startCard(isActiveRide),
+          OfflineSyncCard(api: ref.read(apiProvider)),
+          if (_message != null) ...[
+            const SizedBox(height: 12),
+            _MessageBanner(message: _message!),
+          ],
+          const SizedBox(height: 12),
+          if (isActiveRide) _activeRideCard(_ride!) else _bookingCard(),
+        ];
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 760;
         final map = _heroMapPanel(isActiveRide);
-        final content = ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            _startCard(isActiveRide),
-            const SizedBox(height: 16),
-            OfflineSyncCard(api: ref.read(apiProvider)),
-            if (_message != null) ...[
-              const SizedBox(height: 12),
-              _MessageBanner(message: _message!),
-            ],
-            const SizedBox(height: 16),
-            if (isActiveRide) _activeRideCard(_ride!) else _bookingCard(),
-          ],
-        );
         if (!wide) {
-          return ListView(
+          // Full-screen map with a pull-up booking panel, so the map stays usable
+          // and the form scrolls on its own instead of inside another list.
+          return Stack(
             key: const ValueKey('home-mobile'),
-            padding: EdgeInsets.zero,
             children: [
-              SizedBox(height: 330, child: map),
-              SizedBox(
-                  height: constraints.maxHeight - 330 > 360
-                      ? constraints.maxHeight - 330
-                      : 360,
-                  child: content),
+              Positioned.fill(child: map),
+              DraggableScrollableSheet(
+                initialChildSize: 0.55,
+                minChildSize: 0.22,
+                maxChildSize: 0.94,
+                snap: true,
+                snapSizes: const [0.22, 0.55, 0.94],
+                builder: (context, scrollController) => DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: MishwarBrand.background,
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(24)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.35),
+                        blurRadius: 18,
+                        offset: const Offset(0, -4),
+                      ),
+                    ],
+                  ),
+                  child: ListView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 14),
+                          decoration: BoxDecoration(
+                            color: Colors.white24,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      ...panelChildren(),
+                    ],
+                  ),
+                ),
+              ),
             ],
           );
         }
@@ -1040,10 +1061,59 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
           key: const ValueKey('home-wide'),
           children: [
             Expanded(flex: 5, child: map),
-            Expanded(flex: 4, child: content),
+            Expanded(
+              flex: 4,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: panelChildren(),
+              ),
+            ),
           ],
         );
       },
+    );
+  }
+
+  /// Title row at the top of the booking panel: what to do now, or the live ride status.
+  Widget _panelHeader(bool isActiveRide) {
+    final status = _ride?['status'] as String? ?? '';
+    return Row(
+      children: [
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: MishwarBrand.primary.withValues(alpha: 0.16),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Icon(
+            isActiveRide ? Icons.near_me_outlined : Icons.touch_app_outlined,
+            color: MishwarBrand.primary,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                isActiveRide ? _rideStatusLabel(status) : 'إلى أين تريد الذهاب؟',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                isActiveRide
+                    ? 'تابع الكابتن وحالة الرحلة مباشرة'
+                    : 'اضغط على الخريطة لتحديد الانطلاق والوجهة، أو ابحث بالاسم',
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -1101,94 +1171,45 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
             followTarget: driverLocation != null,
           ),
         ),
-        Positioned(
-          left: 16,
-          right: 16,
-          top: 16,
-          child: _MapStatusPill(
-            title: isActiveRide
-                ? _rideStatusLabel(ride?['status'] as String? ?? '')
-                : 'حدد موقعك ووجهتك',
-            subtitle: isActiveRide
-                ? 'تابع الكابتن وحالة الرحلة مباشرة'
-                : 'اضغط على الخريطة أو ابحث عن موقع يدويًا',
-            icon: isActiveRide
-                ? Icons.near_me_outlined
-                : Icons.touch_app_outlined,
-          ),
-        ),
       ],
     );
   }
 
+  /// Search-state card shown above the booking form; empty when there is nothing to report.
+  /// (Branding lives in the app bar and trip choices in the booking card, so neither repeats here.)
   Widget _startCard(bool isActiveRide) {
     final status = _ride?['status'] as String?;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Row(
-              children: [
-                _MishwarMark(size: 56),
-                SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('مشوار',
-                          style: TextStyle(
-                              fontSize: 28, fontWeight: FontWeight.w900)),
-                      Text('رحلتك تبدأ من الخريطة',
-                          style: TextStyle(color: Colors.white70)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _StatusChip(
-                    icon: Icons.flash_on_outlined,
-                    label: _bookingMode == 'FAST'
-                        ? 'مشوار سريع'
-                        : 'مشوار بالعروض'),
-                _StatusChip(
-                    icon: Icons.directions_car_outlined,
-                    label: _vehicleOptions[_vehicleType] ?? _vehicleType),
-                _StatusChip(
-                    icon: Icons.people_outline, label: '$_passengerCount ركاب'),
-              ],
-            ),
-            if (status == 'SEARCHING_DRIVER') ...[
-              const SizedBox(height: 16),
-              const _WaitingCaptainIndicator(),
-            ] else if (status == 'NO_DRIVER_FOUND' ||
-                status == 'NO_DRIVER_AVAILABLE') ...[
-              const SizedBox(height: 16),
-              _EmptyState(
-                icon: Icons.person_search_outlined,
-                title: 'لا يوجد كباتن متاحون',
-                message: 'جرّب تغيير نوع المركبة أو أعد الطلب بعد قليل.',
-                action: OutlinedButton.icon(
-                  onPressed: _busy ? null : _requestRide,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('إعادة المحاولة'),
-                ),
-              ),
-            ],
-          ],
+    if (status == 'SEARCHING_DRIVER') {
+      return const Padding(
+        padding: EdgeInsets.only(bottom: 12),
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(16),
+            child: _WaitingCaptainIndicator(),
+          ),
         ),
-      ),
-    );
+      );
+    }
+    if (status == 'NO_DRIVER_FOUND' || status == 'NO_DRIVER_AVAILABLE') {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: _EmptyState(
+          icon: Icons.person_search_outlined,
+          title: 'لا يوجد كباتن متاحون',
+          message: 'جرّب تغيير نوع المركبة أو أعد الطلب بعد قليل.',
+          action: OutlinedButton.icon(
+            onPressed: _busy ? null : _requestRide,
+            icon: const Icon(Icons.refresh),
+            label: const Text('إعادة المحاولة'),
+          ),
+        ),
+      );
+    }
+    return const SizedBox.shrink();
   }
 
   Widget _tripsAndReceiptsPage() {
-    final ride = _ride;
+    final ride = _historyRide ?? _ride;
     return ListView(
       key: const ValueKey('trips'),
       padding: const EdgeInsets.all(16),
@@ -1196,13 +1217,7 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
         Text('سجل الرحلات والفواتير',
             style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 12),
-        if (ride == null)
-          const _EmptyState(
-            icon: Icons.receipt_long_outlined,
-            title: 'لا توجد رحلات بعد',
-            message: 'ستظهر هنا الرحلات والفواتير بعد أول طلب.',
-          )
-        else ...[
+        if (ride != null) ...[
           _ReceiptCard(ride: ride),
           const SizedBox(height: 16),
           _RatingAndComplaintCard(
@@ -1210,7 +1225,13 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
             onRate: (stars) => _rateCompletedRide(ride, stars),
             onComplaint: () => _createQuickSupportTicket(category: 'technical'),
           ),
+          const SizedBox(height: 16),
         ],
+        RideHistoryList(
+          api: ref.read(apiProvider),
+          role: 'CUSTOMER',
+          onRideTap: (selected) => setState(() => _historyRide = selected),
+        ),
       ],
     );
   }
@@ -1221,6 +1242,38 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
       padding: const EdgeInsets.all(16),
       children: [
         const MishwarBrandHeader(subtitle: 'حساب العميل والإعدادات'),
+        const SizedBox(height: 16),
+        Card(
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.support_agent_outlined),
+                title: const Text('الدعم الفني'),
+                subtitle: const Text('أرسل طلب مساعدة لفريق مشوار'),
+                trailing: const Icon(Icons.chevron_left),
+                onTap: () => _createQuickSupportTicket(),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('عن التطبيق والشروط'),
+                trailing: const Icon(Icons.chevron_left),
+                onTap: _showAboutAndLegal,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: Icon(Icons.logout,
+                    color: Theme.of(context).colorScheme.error),
+                title: Text('تسجيل الخروج',
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error)),
+                enabled: !_busy,
+                onTap: _signOut,
+              ),
+            ],
+          ),
+        ),
         const SizedBox(height: 16),
         _HealthCard(health: health),
         const SizedBox(height: 16),
@@ -1263,7 +1316,7 @@ class _CustomerHomeScreenState extends ConsumerState<CustomerHomeScreen>
               OutlinedButton.icon(
                 onPressed: () => _rateCompletedRide(_ride!, 5),
                 icon: const Icon(Icons.star_rate_outlined),
-                label: const Text('Rate ride'),
+                label: const Text('قيّم الرحلة'),
               ),
             ],
             const SizedBox(height: 18),
@@ -2122,23 +2175,6 @@ class _MapGridPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(
-      avatar: Icon(icon, size: 16, color: MishwarBrand.primary),
-      label: Text(label),
-      backgroundColor: MishwarBrand.primary.withValues(alpha: 0.12),
-      side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-    );
-  }
-}
-
 class _WaitingCaptainIndicator extends StatelessWidget {
   const _WaitingCaptainIndicator();
 
@@ -2579,12 +2615,25 @@ class _MessageBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: Theme.of(context).colorScheme.errorContainer,
-      borderRadius: BorderRadius.circular(8),
+      color: scheme.errorContainer,
+      borderRadius: BorderRadius.circular(14),
       child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Text(message, textDirection: TextDirection.rtl),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            Icon(Icons.error_outline, color: scheme.onErrorContainer),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                textDirection: TextDirection.rtl,
+                style: TextStyle(color: scheme.onErrorContainer),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

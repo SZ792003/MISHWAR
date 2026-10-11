@@ -149,6 +149,22 @@ export class FirestoreRideRepository {
     return rides.find((ride) => activeRideStatuses(ride.status)) || null;
   }
 
+  /** Past and current rides for a user, newest first (uses the customerId/driverId + createdAt indexes). */
+  async listRidesForUser(uid: string, role: 'CUSTOMER' | 'DRIVER', limitCount = 20): Promise<Ride[]> {
+    const firebaseAdmin = await adminContext();
+    const db = firebaseAdmin.admin.firestore(firebaseAdmin.app) as unknown as {
+      collection: (path: string) => {
+        where: (field: string, op: string, value: unknown) => unknown;
+      };
+    };
+    const field = role === 'DRIVER' ? 'driverId' : 'customerId';
+    const query = (db.collection('rides').where(field, '==', uid) as unknown as {
+      orderBy: (field: string, direction: 'desc') => { limit: (count: number) => { get: () => Promise<{ docs: Array<{ data: () => Record<string, unknown> }> }> } };
+    }).orderBy('createdAt', 'desc').limit(limitCount);
+    const snap = await query.get();
+    return snap.docs.map((doc) => asRide(doc.data()));
+  }
+
   async listSearchingRidesForDriver(driverId: string): Promise<Ride[]> {
     const firebaseAdmin = await adminContext();
     const query = (firebaseAdmin.admin.firestore(firebaseAdmin.app).collection('rides') as unknown as {

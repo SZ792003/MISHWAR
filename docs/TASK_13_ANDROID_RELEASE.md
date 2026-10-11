@@ -46,7 +46,7 @@
 
 تم ضبط:
 
-- `compileSdk = 37`
+- `compileSdk = 36` (AGP 9.1.0 cannot resolve the `android-37.0` platform as `compileSdk = 37`)
 - `targetSdk = 36`
 - Android SDK محلي موجود: `android-37.0`
 - Android Gradle Plugin: `9.1.0`

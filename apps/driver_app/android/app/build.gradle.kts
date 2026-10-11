@@ -32,7 +32,7 @@ plugins {
 
 android {
     namespace = "com.mishwar.driver"
-    compileSdk = 37
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

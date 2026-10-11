@@ -20,7 +20,7 @@
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="description" content="مشوار - اطلب رحلتك بسيارة أو دراجة نارية">
-  <meta name="theme-color" content="#07131F">
+  <meta name="theme-color" content="#02122A">
 
   <!-- iOS meta tags & icons -->
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -36,26 +36,18 @@
 
   <!-- Starting layout shown until Flutter paints its first frame. Colors match MishwarBrand. -->
   <style>
-    html, body { margin: 0; height: 100%; background: #07131F; }
+    html, body { margin: 0; height: 100%; background: #02122A; }
     #mishwar-splash {
       position: fixed; inset: 0; z-index: 9999;
       display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
       padding: 24px; box-sizing: border-box;
-      background: linear-gradient(160deg, #07131F 0%, #0F172A 55%, #0E2A2D 100%);
+      background: linear-gradient(160deg, #02122A 0%, #031E3F 100%);
       color: #fff; font-family: "Segoe UI", Tahoma, "Noto Sans Arabic", "Noto Sans", system-ui, sans-serif;
       transition: opacity .35s ease;
     }
     #mishwar-splash.is-hidden { opacity: 0; pointer-events: none; }
-    .mishwar-splash__logo {
-      width: 84px; height: 84px; border-radius: 24px;
-      display: grid; place-items: center;
-      background: linear-gradient(135deg, #14B8A6, #F59E0B);
-      box-shadow: 0 12px 40px rgba(20, 184, 166, .35);
-      animation: mishwar-pulse 1.8s ease-in-out infinite;
-    }
-    .mishwar-splash__logo svg { width: 46px; height: 46px; fill: #fff; }
-    .mishwar-splash__title { margin: 0; font-size: 34px; font-weight: 800; letter-spacing: .5px; }
-    .mishwar-splash__subtitle { margin: -8px 0 0; font-size: 15px; color: rgba(255, 255, 255, .7); text-align: center; }
+    .mishwar-splash__logo { width: 154px; height: auto; animation: mishwar-pulse 1.8s ease-in-out infinite; }
+    .mishwar-splash__subtitle { margin: 0; font-size: 15px; color: rgba(255, 255, 255, .7); text-align: center; }
     .mishwar-splash__bar {
       position: relative; overflow: hidden;
       width: min(220px, 60vw); height: 4px; margin-top: 10px; border-radius: 4px;
@@ -77,10 +69,7 @@
 </head>
 <body>
   <div id="mishwar-splash" dir="rtl" role="status" aria-live="polite">
-    <div class="mishwar-splash__logo" aria-hidden="true">
-      <svg viewBox="0 0 24 24"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5H15V3H9v2H6.5c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>
-    </div>
-    <h1 class="mishwar-splash__title">مشوار</h1>
+    <img class="mishwar-splash__logo" src="splash_logo.png" alt="مشوار" width="154" height="180">
     <p class="mishwar-splash__subtitle">رحلات ذكية • أسرع • أكثر أماناً</p>
     <div class="mishwar-splash__bar" aria-hidden="true"></div>
     <p class="mishwar-splash__status" id="mishwar-splash-status">جارٍ التحميل…</p>
